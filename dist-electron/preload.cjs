@@ -11,6 +11,7 @@ electron.contextBridge.exposeInMainWorld("electronAPI", {
 	dbConnectConfig: (id) => electron.ipcRenderer.invoke("db:connect-config", id),
 	dbTestConnection: (config) => electron.ipcRenderer.invoke("db:test-connection", config),
 	settingsGet: (key) => electron.ipcRenderer.invoke("settings:get", key),
-	settingsSet: (key, value) => electron.ipcRenderer.invoke("settings:set", key, value)
+	settingsSet: (key, value) => electron.ipcRenderer.invoke("settings:set", key, value),
+	voiceTranscribe: (audioBuffer) => electron.ipcRenderer.invoke("voice:transcribe", audioBuffer)
 });
 //#endregion

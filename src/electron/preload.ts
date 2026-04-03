@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   settingsGet: (key: string) => ipcRenderer.invoke('settings:get', key),
   settingsSet: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+
+  // Voice Pro (Whisper)
+  voiceTranscribe: (audioBuffer: ArrayBuffer) => ipcRenderer.invoke('voice:transcribe', audioBuffer),
 });

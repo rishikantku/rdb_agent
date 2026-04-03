@@ -13,7 +13,7 @@ try { oracledb.initOracleClient(); } catch (e) { oracledb.outFormat = oracledb.O
 const userDataPath = app.getPath('userData');
 const settingsPath = path.join(userDataPath, 'settings_v2.json');
 const connectionsPath = path.join(userDataPath, 'connections.json');
-const sampleDbPath = path.join(userDataPath, 'nexus_poc_v4.db'); 
+const sampleDbPath = path.join(userDataPath, 'nexus_poc_v5.db'); 
 
 let activeConnection: { type: string, instance: any } | null = null;
 if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
@@ -28,6 +28,7 @@ function ensureSampleDatabase() {
       CREATE TABLE Customers (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT UNIQUE, phone TEXT, risk_score INTEGER DEFAULT 50, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE Accounts (id INTEGER PRIMARY KEY, customer_id INTEGER, branch_id INTEGER, account_number TEXT UNIQUE, balance REAL DEFAULT 0, status TEXT DEFAULT 'Active', FOREIGN KEY (customer_id) REFERENCES Customers(id));
       CREATE TABLE Transactions (id INTEGER PRIMARY KEY, account_id INTEGER, transaction_type TEXT, amount REAL, description TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (account_id) REFERENCES Accounts(id));
+      CREATE TABLE Loans (id INTEGER PRIMARY KEY, customer_id INTEGER, loan_type TEXT, amount REAL, interest_rate REAL, status TEXT DEFAULT 'Active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (customer_id) REFERENCES Customers(id));
       CREATE TABLE AuditLogs (id INTEGER PRIMARY KEY, action TEXT, table_name TEXT, record_id INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
 
       INSERT INTO Departments (name, head) VALUES ('Operations', 'Rajesh K.'), ('Lending', 'Suman V.');
@@ -37,6 +38,7 @@ function ensureSampleDatabase() {
     const insertCustomer = seedDb.prepare('INSERT INTO Customers (first_name, last_name, email) VALUES (?, ?, ?)');
     const insertAccount = seedDb.prepare('INSERT INTO Accounts (customer_id, branch_id, account_number, balance) VALUES (?, ?, ?, ?)');
     const insertTrans = seedDb.prepare('INSERT INTO Transactions (account_id, transaction_type, amount, description, timestamp) VALUES (?, ?, ?, ?, ?)');
+    const insertLoan = seedDb.prepare('INSERT INTO Loans (customer_id, loan_type, amount, interest_rate, status, timestamp) VALUES (?, ?, ?, ?, ?, ?)');
     const insertAudit = seedDb.prepare('INSERT INTO AuditLogs (action, table_name, record_id, timestamp) VALUES (?, ?, ?, ?)');
 
     const today = new Date().toISOString().split('T')[0];
@@ -47,20 +49,24 @@ function ensureSampleDatabase() {
         const aRes = insertAccount.run(cResId, (i % 2) + 1, `NEX-ACC-100${i}`, 1500000);
         const aResId = aRes.lastInsertRowid;
 
-        // V4: Use lowercase 'credit' which is the AI's preferred choice
+        // SEED VIP DATA
         if (i <= 5) {
           for (let j = 0; j < 12; j++) {
             const amount = 350000 + (j * 10000);
             const tRes = insertTrans.run(aResId, 'credit', amount, `VIP Transaction ${j}`, today + ' 10:00:00');
             insertAudit.run('INSERT', 'Transactions', tRes.lastInsertRowid, today + ' 10:00:00');
           }
+          // ADD LOANS for top customers (Query requirement)
+          insertLoan.run(cResId, 'Home Loan', 1500000 + (i * 100000), 8.5, 'Active', today + ' 09:00:00');
         } else {
           const tRes = insertTrans.run(aResId, 'credit', 2000, 'Initial Deposit', today + ' 11:00:00');
           insertAudit.run('INSERT', 'Transactions', tRes.lastInsertRowid, today + ' 11:00:00');
+          // Add small loans for others
+          insertLoan.run(cResId, 'Personal Loan', 50000, 12.0, 'Active', today + ' 12:00:00');
         }
     }
-    seedDb.close(); console.log('[Seed] SUCCESS: Nexus V4 Standardized Case Complete.');
-  } catch (err) { console.error('[Seed] FAILED Nexus V4:', err); }
+    seedDb.close(); console.log('[Seed] SUCCESS: Nexus V5 (With Loans) Complete.');
+  } catch (err) { console.error('[Seed] FAILED Nexus V5:', err); }
 }
 
 const getConnections = () => { try { if (fs.existsSync(connectionsPath)) return JSON.parse(fs.readFileSync(connectionsPath, 'utf-8')); } catch (e) { return []; } };
@@ -98,7 +104,7 @@ ipcMain.handle('db:connect-config', async (_, id: string) => {
   try {
     if (config.type === 'sqlite') { activeConnection = { type: 'sqlite', instance: new Database(config.details.path, { timeout: 2000 }) }; } 
     else if (config.type === 'postgres') { const client = new PGClient({ host: config.details.host, port: config.details.port || 5432, user: config.details.user, password: config.details.password, database: config.details.database }); await client.connect(); activeConnection = { type: 'postgres', instance: client }; } 
-    else if (config.type === 'mysql') { activeConnection = { type: 'mysql', instance: await mysql.createConnection({ host: config.details.host, port: config.details.port || 3306, user: config.details.user, password: config.details.password, database: config.details.database }) }; } 
+    else if (config.type === 'mysql') { activeConnection = { type: 'mysql', instance: await mysql.createConnection({ host: config.details.host, port: 3306, user: config.details.user, password: config.details.password, database: config.details.database }) }; } 
     else if (config.type === 'mssql') { activeConnection = { type: 'mssql', instance: await mssql.connect({ server: config.details.host, port: config.details.port || 1433, user: config.details.user, password: config.details.password, database: config.details.database, options: { encrypt: false, trustServerCertificate: true } }) }; } 
     else if (config.type === 'oracle') { activeConnection = { type: 'oracle', instance: await oracledb.getConnection({ user: config.details.user, password: config.details.password, connectionString: `${config.details.host}:${config.details.port || 1521}/${config.details.database}` }) }; }
     return { success: true };
@@ -109,8 +115,8 @@ ipcMain.handle('db:test-connection', async (_, config: any) => {
   try {
     if (config.type === 'sqlite') { const testDb = new Database(config.details.path); testDb.close(); }
     else if (config.type === 'postgres') { const client = new PGClient({ host: config.details.host, port: config.details.port || 5432, user: config.details.user, password: config.details.password, database: config.details.database, connectionTimeoutMillis: 5000 }); await client.connect(); await client.end(); }
-    else if (config.type === 'mysql') { const conn = await mysql.createConnection({ host: config.details.host, port: config.details.port || 3306, user: config.details.user, password: config.details.password, database: config.details.database, connectTimeout: 5000 }); await conn.end(); }
-    else if (config.type === 'mssql') { const pool = await mssql.connect({ server: config.details.host, port: config.details.port || 1433, user: config.details.user, password: config.details.password, database: config.details.database, options: { encrypt: false, trustServerCertificate: true }, requestTimeout: 5000 }); await pool.close(); }
+    else if (config.type === 'mysql') { const conn = await mysql.createConnection({ host: config.details.host, port: 3306, user: config.details.user, password: config.details.password, database: config.details.database }); await conn.end(); }
+    else if (config.type === 'mssql') { const pool = await mssql.connect({ server: config.details.host, port: 1433, user: config.details.user, password: config.details.password, database: config.details.database, options: { encrypt: false, trustServerCertificate: true }, requestTimeout: 5000 }); await pool.close(); }
     else if (config.type === 'oracle') { const conn = await oracledb.getConnection({ user: config.details.user, password: config.details.password, connectionString: `${config.details.host}:${config.details.port || 1521}/${config.details.database}` }); await conn.close(); }
     return { success: true };
   } catch (err: any) { return { success: false, error: err.message }; }
@@ -164,8 +170,37 @@ ipcMain.handle('db:select-file', async () => {
 });
 
 ipcMain.handle('settings:get', (_, key: string) => { try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))[key]; } catch (e) { return null; } });
+ipcMain.handle('settings:get-all', () => { try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch (e) { return {}; } });
 ipcMain.handle('settings:set', (_, key: string, value: any) => {
   try { const s = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) : {}; s[key] = value; fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2)); return true; } catch (e) { return false; }
+});
+
+ipcMain.handle('voice:transcribe', async (_, audioBuffer: ArrayBuffer) => {
+  try {
+    const settings = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) : {};
+    const apiKey = settings['openaiAPIKey'];
+    if (!apiKey) throw new Error('OpenAI API Key not found in settings.');
+
+    const formData = new FormData();
+    const file = new File([audioBuffer], 'audio.webm', { type: 'audio/webm' });
+    formData.append('file', file);
+    formData.append('model', 'whisper-1');
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || response.statusText);
+    }
+    const data = await response.json();
+    return { success: true, text: data.text };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 });
 
 function createWindow() {

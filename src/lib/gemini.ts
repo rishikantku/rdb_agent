@@ -18,8 +18,8 @@ function extractJson(text: string) {
 export async function convertNLtoSQL(prompt: string, schema: any, apiKey: string) {
   const schemaContext = JSON.stringify(schema, null, 2);
   const systemPrompt = `
-    You are a SQL and Data Architecture expert. 
-    Convert the following natural language request into a valid SQL query and a corresponding Mermaid.js data flow diagram.
+    You are a SQL and Data Architecture expert for the Nexus RDBMS Agent. 
+    Convert the following natural language request into a valid SQL query and a Mermaid.js diagram.
     
     SCHEMA:
     ${schemaContext}
@@ -33,11 +33,16 @@ export async function convertNLtoSQL(prompt: string, schema: any, apiKey: string
       "mermaid": "valid mermaid graph LR string"
     }
 
-    METADATA & GUARDRAILS:
-    1. The 'transaction_type' column in 'Transactions' ALWAYS uses lowercase values: 'credit', 'debit'.
-    2. The 'status' column in 'Accounts' uses: 'Active', 'Inactive'.
-    3. If the request is NOT related to database diagnostics, return a forbidden SQL record.
-    4. ONLY return the JSON object. NO EXPLANATIONS. NO MARKDOWN.
+    DIAGNOSTIC RULES:
+    1. The 'transaction_type' column in 'Transactions' uses lowercase: 'credit', 'debit'.
+    2. The 'Loans' table contains: 'id', 'customer_id', 'loan_type', 'amount', 'interest_rate', 'status'.
+    3. If the request requires a table or column NOT present in the schema, you MUST return:
+       {
+         "sql": "SELECT 'Error: The required data (e.g. \"' || (missing_item) || '\") is not present in the current schema.'",
+         "mermaid": ""
+       }
+    4. Guardrails: If the request is not database-related, return a forbidden error record.
+    5. ONLY return the JSON object. NO EXPLANATIONS.
   `;
 
   try {

@@ -182,3 +182,26 @@
     border-right-color: var(--border);
   }
 }
+
+/* Nexus Voice Support Animations */
+@keyframes mic-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(100, 255, 218, 0.4);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 10px rgba(100, 255, 218, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(100, 255, 218, 0);
+  }
+}
+
+.mic-pulse {
+  animation: mic-pulse 1.5s infinite;
+  background: rgba(100, 255, 218, 0.1) !important;
+  color: #64ffda !important;
+  border-color: #64ffda !important;
+}

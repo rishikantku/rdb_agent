@@ -12,6 +12,8 @@ export interface ElectronAPI {
 
   settingsGet: (key: string) => Promise<any>;
   settingsSet: (key: string, value: any) => Promise<boolean>;
+
+  voiceTranscribe: (audioBuffer: ArrayBuffer) => Promise<{ success: boolean; text?: string; error?: string }>;
 }
 
 declare global {

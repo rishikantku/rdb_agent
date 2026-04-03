@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, Landmark, CreditCard, Activity, Database, FolderOpen, Search, Play, FileSpreadsheet, FileText,
   Terminal, ShieldAlert, PlusCircle, Database as DatabaseIcon, Settings2, Trash2, Box, Layers, BarChart3,
-  Network
+  Network, Mic, MicOff
 } from 'lucide-react';
 import { convertNLtoSQL } from '../lib/gemini';
 import { convertNLtoSQLOpenAI } from '../lib/openai';
@@ -31,6 +31,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const [mermaidChart, setMermaidChart] = useState('');
   const [showFlow, setShowFlow] = useState(true);
   const [includeVisualStrategy, setIncludeVisualStrategy] = useState(true);
+  const [isListening, setIsListening] = useState(false);
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const [activeId, setActiveId] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cards, setCards] = useState<StatCardProps[]>([]);
+  
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => { loadConfigs(); }, []);
 
@@ -117,6 +121,55 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
       ]);
     } catch (e) { console.error('Generic stats failed'); }
   };
+
+  const toggleListening = useCallback(async () => {
+    if (isListening && mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstart = () => {
+        setIsListening(true);
+        setError(null);
+      };
+
+      recorder.onstop = async () => {
+        setIsListening(false);
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const arrayBuffer = await audioBlob.arrayBuffer();
+        
+        setLoading(true);
+        const res = await window.electronAPI.voiceTranscribe(arrayBuffer);
+        setLoading(false);
+
+        if (res.success && res.text) {
+          setPrompt(prev => prev + (prev.length > 0 ? ' ' : '') + res.text);
+        } else if (res.error) {
+          setError(`Voice Transcription Error: ${res.error}`);
+        }
+        
+        // Stop all tracks to release the microphone
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+    } catch (err: any) {
+      console.error('[Voice] Init failed:', err);
+      setError(`Microphone Init Failed: ${err.message}`);
+      setIsListening(false);
+    }
+  }, [isListening]);
 
   const handleGenerateSQL = async () => {
     setLoading(true); setResults([]); setSql(''); setMermaidChart(''); setError(null);
@@ -202,9 +255,40 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
             <label htmlFor="vi-strategy" style={{ cursor: 'pointer' }}>Include Visual Implementation Strategy</label>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={externalConnected ? "What can I analyze for you today?" : "Select an environment first."} disabled={!externalConnected || loading} style={{ minHeight: '80px', flex: 1 }} />
-          <button onClick={handleGenerateSQL} disabled={!externalConnected || loading || !prompt} style={{ padding: '0 2rem' }}>{loading ? '...' : <Search size={20} />}</button>
+        <div style={{ display: 'flex', gap: '1rem', position: 'relative' }}>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea 
+              value={prompt} 
+              onChange={(e) => setPrompt(e.target.value)} 
+              placeholder={externalConnected ? "What can I analyze for you today?" : "Select an environment first."} 
+              disabled={!externalConnected || loading} 
+              style={{ minHeight: '80px', width: '100%', paddingRight: '45px' }} 
+            />
+            <button
+              onClick={toggleListening}
+              className={isListening ? 'mic-pulse' : ''}
+              disabled={!externalConnected || loading}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                right: '10px',
+                background: 'rgba(10, 25, 47, 0.8)',
+                border: '1px solid var(--border)',
+                borderRadius: '50%',
+                width: '35px',
+                height: '35px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0,
+                transition: 'all 0.3s ease',
+                zIndex: 10
+              }}
+            >
+              {isListening ? <MicOff size={18} color="#64ffda" /> : <Mic size={18} color="#8892b0" />}
+            </button>
+          </div>
+          <button onClick={handleGenerateSQL} disabled={!externalConnected || loading || !prompt} style={{ padding: '0 2rem', height: '80px' }}>{loading ? '...' : <Search size={24} />}</button>
         </div>
 
         {sql && (

@@ -8,28 +8,33 @@ function extractJson(text: string) {
       try {
         return JSON.parse(text.substring(start, end + 1));
       } catch (e2) {
-        throw new Error('Malformed JSON structure');
+        throw new Error('Malformed JSON response');
       }
     }
-    throw new Error('No JSON object found');
+    throw new Error('AI failed join analysis');
   }
 }
 
 export async function convertNLtoSQLOpenAI(prompt: string, schema: any, apiKey: string) {
   const schemaContext = JSON.stringify(schema, null, 2);
   const systemPrompt = `
-    You are a SQL and Data Architecture expert. 
-    Convert the following request into a valid SQL query and a Mermaid.js diagram.
+    You are a SQL and Data Architecture expert for the Nexus RDBMS Agent. 
+    Convert the following natural language request into a valid SQL query and a Mermaid.js diagram.
     
     SCHEMA: ${schemaContext}
     REQUEST: "${prompt}"
     
-    METADATA & GUARDRAILS:
-    1. The 'transaction_type' column in 'Transactions' ALWAYS uses lowercase values: 'credit', 'debit'.
-    2. The 'status' column in 'Accounts' uses: 'Active', 'Inactive'.
-    3. If the request is NOT related to database diagnostics, return a forbidden SQL record.
-    4. ONLY return the JSON object. NO EXPLANATIONS. NO MARKDOWN.
-    5. Orientation: graph LR (Left to Right).
+    DIAGNOSTIC RULES:
+    1. The 'transaction_type' column in 'Transactions' uses lowercase: 'credit', 'debit'.
+    2. The 'Loans' table contains: 'id', 'customer_id', 'loan_type', 'amount', 'interest_rate', 'status'.
+    3. If the request requires a table or column NOT present in the schema, you MUST return:
+       {
+         "sql": "SELECT 'Error: The required data attribute is not present in the current schema.'",
+         "mermaid": ""
+       }
+    4. Guardrails: If the request is not database-related, return a forbidden error record.
+    5. ONLY return the JSON object. NO EXPLANATIONS.
+    6. Orientation: graph LR (Left to Right).
   `;
 
   try {
@@ -65,7 +70,7 @@ export async function convertNLtoSQLOpenAI(prompt: string, schema: any, apiKey: 
       mermaid: parsed.mermaid || ''
     };
   } catch (error: any) {
-    console.error('[OpenAI] Extraction failed', error);
+    console.error('[OpenAI] Request failed', error);
     return {
       sql: 'SELECT "AI Error: ' + error.message.replace(/"/g, "'") + '"',
       mermaid: ''

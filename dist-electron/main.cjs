@@ -102794,7 +102794,7 @@ try {
 var userDataPath = electron.app.getPath("userData");
 var settingsPath = path.default.join(userDataPath, "settings_v2.json");
 var connectionsPath = path.default.join(userDataPath, "connections.json");
-var sampleDbPath = path.default.join(userDataPath, "nexus_poc_v4.db");
+var sampleDbPath = path.default.join(userDataPath, "nexus_poc_v5.db");
 var activeConnection = null;
 if (!fs.default.existsSync(userDataPath)) fs.default.mkdirSync(userDataPath, { recursive: true });
 function ensureSampleDatabase() {
@@ -102807,6 +102807,7 @@ function ensureSampleDatabase() {
       CREATE TABLE Customers (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT UNIQUE, phone TEXT, risk_score INTEGER DEFAULT 50, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
       CREATE TABLE Accounts (id INTEGER PRIMARY KEY, customer_id INTEGER, branch_id INTEGER, account_number TEXT UNIQUE, balance REAL DEFAULT 0, status TEXT DEFAULT 'Active', FOREIGN KEY (customer_id) REFERENCES Customers(id));
       CREATE TABLE Transactions (id INTEGER PRIMARY KEY, account_id INTEGER, transaction_type TEXT, amount REAL, description TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (account_id) REFERENCES Accounts(id));
+      CREATE TABLE Loans (id INTEGER PRIMARY KEY, customer_id INTEGER, loan_type TEXT, amount REAL, interest_rate REAL, status TEXT DEFAULT 'Active', timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (customer_id) REFERENCES Customers(id));
       CREATE TABLE AuditLogs (id INTEGER PRIMARY KEY, action TEXT, table_name TEXT, record_id INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
 
       INSERT INTO Departments (name, head) VALUES ('Operations', 'Rajesh K.'), ('Lending', 'Suman V.');
@@ -102815,25 +102816,29 @@ function ensureSampleDatabase() {
 		const insertCustomer = seedDb.prepare("INSERT INTO Customers (first_name, last_name, email) VALUES (?, ?, ?)");
 		const insertAccount = seedDb.prepare("INSERT INTO Accounts (customer_id, branch_id, account_number, balance) VALUES (?, ?, ?, ?)");
 		const insertTrans = seedDb.prepare("INSERT INTO Transactions (account_id, transaction_type, amount, description, timestamp) VALUES (?, ?, ?, ?, ?)");
+		const insertLoan = seedDb.prepare("INSERT INTO Loans (customer_id, loan_type, amount, interest_rate, status, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
 		const insertAudit = seedDb.prepare("INSERT INTO AuditLogs (action, table_name, record_id, timestamp) VALUES (?, ?, ?, ?)");
 		const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
 		for (let i = 1; i <= 100; i++) {
 			const cResId = insertCustomer.run(`Nexus_Agent`, `${i}`, `user${i}@nexus-data.com`).lastInsertRowid;
 			const aResId = insertAccount.run(cResId, i % 2 + 1, `NEX-ACC-100${i}`, 15e5).lastInsertRowid;
-			if (i <= 5) for (let j = 0; j < 12; j++) {
-				const amount = 35e4 + j * 1e4;
-				const tRes = insertTrans.run(aResId, "credit", amount, `VIP Transaction ${j}`, today + " 10:00:00");
-				insertAudit.run("INSERT", "Transactions", tRes.lastInsertRowid, today + " 10:00:00");
-			}
-			else {
+			if (i <= 5) {
+				for (let j = 0; j < 12; j++) {
+					const amount = 35e4 + j * 1e4;
+					const tRes = insertTrans.run(aResId, "credit", amount, `VIP Transaction ${j}`, today + " 10:00:00");
+					insertAudit.run("INSERT", "Transactions", tRes.lastInsertRowid, today + " 10:00:00");
+				}
+				insertLoan.run(cResId, "Home Loan", 15e5 + i * 1e5, 8.5, "Active", today + " 09:00:00");
+			} else {
 				const tRes = insertTrans.run(aResId, "credit", 2e3, "Initial Deposit", today + " 11:00:00");
 				insertAudit.run("INSERT", "Transactions", tRes.lastInsertRowid, today + " 11:00:00");
+				insertLoan.run(cResId, "Personal Loan", 5e4, 12, "Active", today + " 12:00:00");
 			}
 		}
 		seedDb.close();
-		console.log("[Seed] SUCCESS: Nexus V4 Standardized Case Complete.");
+		console.log("[Seed] SUCCESS: Nexus V5 (With Loans) Complete.");
 	} catch (err) {
-		console.error("[Seed] FAILED Nexus V4:", err);
+		console.error("[Seed] FAILED Nexus V5:", err);
 	}
 }
 var getConnections = () => {
@@ -102897,7 +102902,7 @@ electron.ipcMain.handle("db:connect-config", async (_, id) => {
 			type: "mysql",
 			instance: await import_promise.createConnection({
 				host: config.details.host,
-				port: config.details.port || 3306,
+				port: 3306,
 				user: config.details.user,
 				password: config.details.password,
 				database: config.details.database
@@ -102949,15 +102954,14 @@ electron.ipcMain.handle("db:test-connection", async (_, config) => {
 			await client.end();
 		} else if (config.type === "mysql") await (await import_promise.createConnection({
 			host: config.details.host,
-			port: config.details.port || 3306,
+			port: 3306,
 			user: config.details.user,
 			password: config.details.password,
-			database: config.details.database,
-			connectTimeout: 5e3
+			database: config.details.database
 		})).end();
 		else if (config.type === "mssql") await (await import_mssql.default.connect({
 			server: config.details.host,
-			port: config.details.port || 1433,
+			port: 1433,
 			user: config.details.user,
 			password: config.details.password,
 			database: config.details.database,
@@ -103128,6 +103132,13 @@ electron.ipcMain.handle("settings:get", (_, key) => {
 		return null;
 	}
 });
+electron.ipcMain.handle("settings:get-all", () => {
+	try {
+		return JSON.parse(fs.default.readFileSync(settingsPath, "utf-8"));
+	} catch (e) {
+		return {};
+	}
+});
 electron.ipcMain.handle("settings:set", (_, key, value) => {
 	try {
 		const s = fs.default.existsSync(settingsPath) ? JSON.parse(fs.default.readFileSync(settingsPath, "utf-8")) : {};
@@ -103136,6 +103147,34 @@ electron.ipcMain.handle("settings:set", (_, key, value) => {
 		return true;
 	} catch (e) {
 		return false;
+	}
+});
+electron.ipcMain.handle("voice:transcribe", async (_, audioBuffer) => {
+	try {
+		const apiKey = (fs.default.existsSync(settingsPath) ? JSON.parse(fs.default.readFileSync(settingsPath, "utf-8")) : {})["openaiAPIKey"];
+		if (!apiKey) throw new Error("OpenAI API Key not found in settings.");
+		const formData = new FormData();
+		const file = new File([audioBuffer], "audio.webm", { type: "audio/webm" });
+		formData.append("file", file);
+		formData.append("model", "whisper-1");
+		const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+			method: "POST",
+			headers: { "Authorization": `Bearer ${apiKey}` },
+			body: formData
+		});
+		if (!response.ok) {
+			const err = await response.json();
+			throw new Error(err.error?.message || response.statusText);
+		}
+		return {
+			success: true,
+			text: (await response.json()).text
+		};
+	} catch (err) {
+		return {
+			success: false,
+			error: err.message
+		};
 	}
 });
 function createWindow() {
