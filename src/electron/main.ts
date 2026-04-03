@@ -1,0 +1,176 @@
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import path from 'path';
+import Database from 'better-sqlite3';
+import { Client as PGClient } from 'pg';
+import mysql from 'mysql2/promise';
+import mssql from 'mssql';
+import oracledb from 'oracledb';
+import fs from 'fs';
+
+let mainWindow: BrowserWindow | null = null;
+try { oracledb.initOracleClient(); } catch (e) { oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT; }
+
+const userDataPath = app.getPath('userData');
+const settingsPath = path.join(userDataPath, 'settings_v2.json');
+const connectionsPath = path.join(userDataPath, 'connections.json');
+const sampleDbPath = path.join(userDataPath, 'nexus_poc_v4.db'); 
+
+let activeConnection: { type: string, instance: any } | null = null;
+if (!fs.existsSync(userDataPath)) fs.mkdirSync(userDataPath, { recursive: true });
+
+function ensureSampleDatabase() {
+  if (fs.existsSync(sampleDbPath)) return;
+  try {
+    const seedDb = new Database(sampleDbPath);
+    seedDb.exec(`
+      CREATE TABLE Departments (id INTEGER PRIMARY KEY, name TEXT, head TEXT);
+      CREATE TABLE Branches (id INTEGER PRIMARY KEY, branch_name TEXT, ifsc_code TEXT UNIQUE, city TEXT, address TEXT);
+      CREATE TABLE Customers (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT UNIQUE, phone TEXT, risk_score INTEGER DEFAULT 50, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+      CREATE TABLE Accounts (id INTEGER PRIMARY KEY, customer_id INTEGER, branch_id INTEGER, account_number TEXT UNIQUE, balance REAL DEFAULT 0, status TEXT DEFAULT 'Active', FOREIGN KEY (customer_id) REFERENCES Customers(id));
+      CREATE TABLE Transactions (id INTEGER PRIMARY KEY, account_id INTEGER, transaction_type TEXT, amount REAL, description TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (account_id) REFERENCES Accounts(id));
+      CREATE TABLE AuditLogs (id INTEGER PRIMARY KEY, action TEXT, table_name TEXT, record_id INTEGER, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);
+
+      INSERT INTO Departments (name, head) VALUES ('Operations', 'Rajesh K.'), ('Lending', 'Suman V.');
+      INSERT INTO Branches (branch_name, ifsc_code, city) VALUES ('Nexus Main', 'NEXS001', 'Mumbai'), ('Nexus Central', 'NEXS002', 'Delhi');
+    `);
+
+    const insertCustomer = seedDb.prepare('INSERT INTO Customers (first_name, last_name, email) VALUES (?, ?, ?)');
+    const insertAccount = seedDb.prepare('INSERT INTO Accounts (customer_id, branch_id, account_number, balance) VALUES (?, ?, ?, ?)');
+    const insertTrans = seedDb.prepare('INSERT INTO Transactions (account_id, transaction_type, amount, description, timestamp) VALUES (?, ?, ?, ?, ?)');
+    const insertAudit = seedDb.prepare('INSERT INTO AuditLogs (action, table_name, record_id, timestamp) VALUES (?, ?, ?, ?)');
+
+    const today = new Date().toISOString().split('T')[0];
+
+    for (let i = 1; i <= 100; i++) {
+        const cRes = insertCustomer.run(`Nexus_Agent`, `${i}`, `user${i}@nexus-data.com`);
+        const cResId = cRes.lastInsertRowid;
+        const aRes = insertAccount.run(cResId, (i % 2) + 1, `NEX-ACC-100${i}`, 1500000);
+        const aResId = aRes.lastInsertRowid;
+
+        // V4: Use lowercase 'credit' which is the AI's preferred choice
+        if (i <= 5) {
+          for (let j = 0; j < 12; j++) {
+            const amount = 350000 + (j * 10000);
+            const tRes = insertTrans.run(aResId, 'credit', amount, `VIP Transaction ${j}`, today + ' 10:00:00');
+            insertAudit.run('INSERT', 'Transactions', tRes.lastInsertRowid, today + ' 10:00:00');
+          }
+        } else {
+          const tRes = insertTrans.run(aResId, 'credit', 2000, 'Initial Deposit', today + ' 11:00:00');
+          insertAudit.run('INSERT', 'Transactions', tRes.lastInsertRowid, today + ' 11:00:00');
+        }
+    }
+    seedDb.close(); console.log('[Seed] SUCCESS: Nexus V4 Standardized Case Complete.');
+  } catch (err) { console.error('[Seed] FAILED Nexus V4:', err); }
+}
+
+const getConnections = () => { try { if (fs.existsSync(connectionsPath)) return JSON.parse(fs.readFileSync(connectionsPath, 'utf-8')); } catch (e) { return []; } };
+const saveConnections = (conns: any[]) => fs.writeFileSync(connectionsPath, JSON.stringify(conns, null, 2), 'utf-8');
+
+const closeActiveConnection = async () => {
+  if (!activeConnection) return;
+  try {
+    if (activeConnection.type === 'sqlite') activeConnection.instance.close();
+    else if (activeConnection.type === 'mssql') await activeConnection.instance.close();
+    else await activeConnection.instance.close() || await activeConnection.instance.end?.();
+  } catch (e) { console.error('[DB] Close error:', e); }
+  activeConnection = null;
+};
+
+ipcMain.handle('db:get-configs', async () => getConnections());
+ipcMain.handle('db:save-config', async (_, config: any) => {
+  const conns = getConnections();
+  const existingIndex = conns.findIndex((c: any) => c.id === config.id);
+  if (existingIndex >= 0) conns[existingIndex] = config; else conns.push({ ...config, id: Date.now().toString() });
+  saveConnections(conns ?? []);
+  return { success: true };
+});
+
+ipcMain.handle('db:delete-config', async (_, id: string) => {
+  const conns = getConnections().filter((c: any) => c.id !== id);
+  saveConnections(conns); return { success: true };
+});
+
+ipcMain.handle('db:connect-config', async (_, id: string) => {
+  const conns = getConnections();
+  const config = conns.find((c: any) => c.id === id);
+  if (!config) throw new Error('Config not found.');
+  await closeActiveConnection();
+  try {
+    if (config.type === 'sqlite') { activeConnection = { type: 'sqlite', instance: new Database(config.details.path, { timeout: 2000 }) }; } 
+    else if (config.type === 'postgres') { const client = new PGClient({ host: config.details.host, port: config.details.port || 5432, user: config.details.user, password: config.details.password, database: config.details.database }); await client.connect(); activeConnection = { type: 'postgres', instance: client }; } 
+    else if (config.type === 'mysql') { activeConnection = { type: 'mysql', instance: await mysql.createConnection({ host: config.details.host, port: config.details.port || 3306, user: config.details.user, password: config.details.password, database: config.details.database }) }; } 
+    else if (config.type === 'mssql') { activeConnection = { type: 'mssql', instance: await mssql.connect({ server: config.details.host, port: config.details.port || 1433, user: config.details.user, password: config.details.password, database: config.details.database, options: { encrypt: false, trustServerCertificate: true } }) }; } 
+    else if (config.type === 'oracle') { activeConnection = { type: 'oracle', instance: await oracledb.getConnection({ user: config.details.user, password: config.details.password, connectionString: `${config.details.host}:${config.details.port || 1521}/${config.details.database}` }) }; }
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('db:test-connection', async (_, config: any) => {
+  try {
+    if (config.type === 'sqlite') { const testDb = new Database(config.details.path); testDb.close(); }
+    else if (config.type === 'postgres') { const client = new PGClient({ host: config.details.host, port: config.details.port || 5432, user: config.details.user, password: config.details.password, database: config.details.database, connectionTimeoutMillis: 5000 }); await client.connect(); await client.end(); }
+    else if (config.type === 'mysql') { const conn = await mysql.createConnection({ host: config.details.host, port: config.details.port || 3306, user: config.details.user, password: config.details.password, database: config.details.database, connectTimeout: 5000 }); await conn.end(); }
+    else if (config.type === 'mssql') { const pool = await mssql.connect({ server: config.details.host, port: config.details.port || 1433, user: config.details.user, password: config.details.password, database: config.details.database, options: { encrypt: false, trustServerCertificate: true }, requestTimeout: 5000 }); await pool.close(); }
+    else if (config.type === 'oracle') { const conn = await oracledb.getConnection({ user: config.details.user, password: config.details.password, connectionString: `${config.details.host}:${config.details.port || 1521}/${config.details.database}` }); await conn.close(); }
+    return { success: true };
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('db:query', async (_, sql: string, params: any[] = []) => {
+  if (!activeConnection) return { success: false, error: 'Not connected' };
+  try {
+    if (activeConnection.type === 'sqlite') return { success: true, data: activeConnection.instance.prepare(sql).all(...params) };
+    else if (activeConnection.type === 'postgres') { const res = await activeConnection.instance.query(sql, params); return { success: true, data: res.rows }; }
+    else if (activeConnection.type === 'mysql') { const [rows] = await activeConnection.instance.execute(sql, params); return { success: true, data: rows }; }
+    else if (activeConnection.type === 'mssql') { const request = activeConnection.instance.request(); if (params) params.forEach((v, i) => request.input(`p${i}`, v)); const res = await request.query(sql); return { success: true, data: res.recordset }; }
+    else if (activeConnection.type === 'oracle') { const res = await activeConnection.instance.execute(sql, params, { outFormat: oracledb.OUT_FORMAT_OBJECT }); return { success: true, data: res.rows }; }
+    return { success: false, error: 'Unsupported' };
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('db:get-schema', async () => {
+  if (!activeConnection) return { success: false, error: 'Not connected' };
+  try {
+    const schema: any = { tables: [], views: [] };
+    if (activeConnection.type === 'sqlite') {
+      const objects = activeConnection.instance.prepare("SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view')").all();
+      for (const obj of objects as any) { const columns = activeConnection.instance.prepare(`PRAGMA table_info(${obj.name})`).all(); if (obj.type === 'table') schema.tables.push({ name: obj.name, columns }); else schema.views.push({ name: obj.name, columns }); }
+    } else if (activeConnection.type === 'postgres') {
+      const res = await activeConnection.instance.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
+      for (const row of res.rows) { const cols = await activeConnection.instance.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${row.table_name}'`); schema.tables.push({ name: row.table_name, columns: cols.rows }); }
+    } else if (activeConnection.type === 'mysql') {
+      const [tables] = await activeConnection.instance.execute("SHOW TABLES");
+      for (const tRow of tables as any[]) { const tName = Object.values(tRow)[0] as string; const [cols] = await activeConnection.instance.execute(`DESCRIBE ${tName}`); schema.tables.push({ name: tName, columns: cols }); }
+    } else if (activeConnection.type === 'mssql') {
+      const tables = await activeConnection.instance.query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'");
+      for (const row of tables.recordset) { const cols = await activeConnection.instance.query(`SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${row.TABLE_NAME}'`); schema.tables.push({ name: row.TABLE_NAME, columns: cols.recordset }); }
+    } else if (activeConnection.type === 'oracle') {
+        const tables = await activeConnection.instance.execute("SELECT table_name FROM user_tables");
+        for (const row of tables.rows) { const cols = await activeConnection.instance.execute(`SELECT column_name, data_type FROM user_tab_columns WHERE table_name = '${row.TABLE_NAME || row.table_name}'`); schema.tables.push({ name: row.TABLE_NAME || row.table_name, columns: cols.rows }); }
+    }
+    return { success: true, data: schema };
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('db:connect', async (_, connectionString?: string) => {
+  try { 
+    ensureSampleDatabase();
+    const dbPath = connectionString || sampleDbPath; await closeActiveConnection(); activeConnection = { type: 'sqlite', instance: new Database(dbPath, { timeout: 2000 }) }; return { success: true }; 
+  } catch (err: any) { return { success: false, error: err.message }; }
+});
+
+ipcMain.handle('db:select-file', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'SQLite', extensions: ['db', 'sqlite'] }] }); return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle('settings:get', (_, key: string) => { try { return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))[key]; } catch (e) { return null; } });
+ipcMain.handle('settings:set', (_, key: string, value: any) => {
+  try { const s = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) : {}; s[key] = value; fs.writeFileSync(settingsPath, JSON.stringify(s, null, 2)); return true; } catch (e) { return false; }
+});
+
+function createWindow() {
+  mainWindow = new BrowserWindow({ width: 1200, height: 800, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true }, titleBarStyle: 'hiddenInset' });
+  if (process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL); else mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+}
+app.whenReady().then(() => { ensureSampleDatabase(); createWindow(); });
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

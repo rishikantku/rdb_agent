@@ -1,0 +1,4 @@
+Show me the latest 10 transactions recorded today that triggered an Audit Log. List the transaction amount, account number, and the action timestamp from the AuditLogs table
+
+
+Identify any account that has more than 5 transactions in the database with a total credit amount exceeding 2 lakhs. Show the customer's name and email
