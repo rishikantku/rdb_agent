@@ -20,6 +20,19 @@ export interface ElectronAPI {
   aiHealth: () => Promise<any>;
   aiAudit: (limit?: number) => Promise<{ entries: any[]; metrics: any }>;
   aiSchemaPreview: (question: string) => Promise<any>;
+  /** Live schema of the Neon Postgres analysis database */
+  aiDbSchema: () => Promise<{ success: boolean; data?: { tables: any[]; views: any[] }; error?: string }>;
+  aiDbPreview: (tableName: string, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+  /** Run ad-hoc read-only SQL against Neon, validated by the same guardian */
+  /** Live pipeline stage events during a query. Returns an unsubscribe function. */
+  onAiProgress: (cb: (event: {
+    stage: string; status: 'start' | 'done' | 'error' | 'skipped';
+    detail?: string; index: number; total: number;
+  }) => void) => () => void;
+  aiSqlRun: (sql: string) => Promise<{
+    success: boolean; data?: any[]; rowCount?: number; elapsedMs?: number;
+    warnings?: string[]; error?: string; blocked?: boolean;
+  }>;
 }
 
 export interface AIQueryResponse {

@@ -22,7 +22,7 @@ const App = () => {
     <div style={{ display: 'flex', width: '100vw' }}>
       <aside className="sidebar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '2rem' }}>
-          <DatabaseZap size={32} color="#fbbf24" />
+          <DatabaseZap size={32} color="var(--accent)" />
           <h2 style={{ fontSize: '1.2rem', margin: 0 }} className="nexus-gold">Nexus RDBMS Agent</h2>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -37,13 +37,13 @@ const App = () => {
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 'auto', textAlign: 'center', fontSize: '0.8rem', color: '#8892b0' }}>
+        <div style={{ marginTop: 'auto', textAlign: 'center', fontSize: '0.8rem', color: 'var(--ink-3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
             <span style={{ 
               width: 8, 
               height: 8, 
               borderRadius: '50%', 
-              backgroundColor: dbStatus.connected ? '#10b981' : '#ef4444' 
+              backgroundColor: dbStatus.connected ? 'var(--success)' : 'var(--danger)' 
             }} />
             {dbStatus.connected ? 'Active DB' : 'Disconnected'}
           </div>

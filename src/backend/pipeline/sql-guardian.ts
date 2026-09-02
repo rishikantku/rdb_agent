@@ -142,6 +142,18 @@ export class SQLGuardian {
     }
 
     // -----------------------------------------------------------------------
+    // Semantic defects that execute cleanly but answer the wrong question
+    // -----------------------------------------------------------------------
+
+    for (const problem of this.detectDegenerateAggregates(sqlNormalized)) {
+      errors.push({
+        code: 'DEGENERATE_AGGREGATE',
+        message: problem,
+        severity: 'error',
+      });
+    }
+
+    // -----------------------------------------------------------------------
     // Complexity analysis
     // -----------------------------------------------------------------------
 
@@ -177,11 +189,23 @@ export class SQLGuardian {
     // -----------------------------------------------------------------------
 
     let modifiedSql = sql;
-    if (!this.hasResultLimit(sqlUpper)) {
+    const topLevel = this.stripParenGroups(sql);
+    const topLevelLimit = /\bLIMIT\s+(\d+)/i.exec(topLevel);
+
+    if (!this.hasResultLimit(topLevel.toUpperCase())) {
       modifiedSql = this.applyResultLimit(sql);
       warnings.push({
         code: 'LIMIT_APPLIED',
         message: `Result limit of ${this.config.maxResultRows} rows applied for safety.`,
+      });
+    } else if (topLevelLimit && parseInt(topLevelLimit[1], 10) > this.config.maxResultRows) {
+      // A limit larger than the cap is still unbounded as far as the UI is concerned
+      const idx = sql.toUpperCase().lastIndexOf('LIMIT');
+      modifiedSql =
+        sql.slice(0, idx) + sql.slice(idx).replace(/\bLIMIT\s+\d+/i, `LIMIT ${this.config.maxResultRows}`);
+      warnings.push({
+        code: 'LIMIT_REDUCED',
+        message: `Result limit reduced from ${topLevelLimit[1]} to ${this.config.maxResultRows} rows.`,
       });
     }
 
@@ -397,6 +421,63 @@ export class SQLGuardian {
     return names;
   }
 
+  /**
+   * An aggregate over a column that also appears in the same SELECT's GROUP BY
+   * is degenerate: each group holds one distinct value of that column, so
+   * AVG/MEDIAN of it equals the row's own value. Comparing a row against such a
+   * "group statistic" is never true, and the query silently returns zero rows.
+   * Models produce this repeatedly when asked for "above their department
+   * average"; prompt rules did not stop it, so it is caught here.
+   */
+  private detectDegenerateAggregates(sql: string): string[] {
+    const problems: string[] = [];
+    const bare = (c: string) => c.trim().split('.').pop()!.toLowerCase();
+
+    // Each GROUP BY, with the select-list that precedes it
+    // Stop at the first closing paren or clause keyword. Anything looser lets the
+    // capture run past the end of a CTE and swallow the next SELECT's columns,
+    // which reads as a false positive.
+    const groupByRe = /\bGROUP\s+BY\b([\s\S]*?)(?=\bHAVING\b|\bORDER\s+BY\b|\bLIMIT\b|\bWINDOW\b|\bUNION\b|\bSELECT\b|\)|$)/gi;
+
+    let m: RegExpExecArray | null;
+    while ((m = groupByRe.exec(sql)) !== null) {
+      const groupCols = new Set(
+        m[1]
+          .split(',')
+          .map((c) => bare(c))
+          .filter((c) => /^[a-z_][a-z0-9_]*$/.test(c))
+      );
+      if (groupCols.size === 0) continue;
+
+      // The SELECT that owns this GROUP BY
+      const before = sql.slice(0, m.index);
+      const selectStart = before.toUpperCase().lastIndexOf('SELECT');
+      if (selectStart === -1) continue;
+      const selectList = before.slice(selectStart);
+
+      const aggregated = new Set<string>();
+      const plain = /\b(?:AVG|SUM|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([a-zA-Z_][\w.]*)\s*\)/gi;
+      const within = /\bPERCENTILE_(?:CONT|DISC)\s*\([^)]*\)\s*WITHIN\s+GROUP\s*\(\s*ORDER\s+BY\s+([a-zA-Z_][\w.]*)/gi;
+      for (const re of [plain, within]) {
+        let a: RegExpExecArray | null;
+        while ((a = re.exec(selectList)) !== null) aggregated.add(bare(a[1]));
+      }
+
+      for (const col of aggregated) {
+        if (groupCols.has(col)) {
+          problems.push(
+            `"${col}" is aggregated and also listed in GROUP BY, so each group ` +
+            `contains a single value and the aggregate equals that row's own ` +
+            `value. Group only by the grouping key (e.g. department_id) and join ` +
+            `the result back.`
+          );
+        }
+      }
+    }
+
+    return Array.from(new Set(problems));
+  }
+
   private extractTableReferences(sql: string): string[] {
     const tables = new Set<string>();
 
@@ -446,6 +527,24 @@ export class SQLGuardian {
       }
     }
     return false;
+  }
+
+  /**
+   * Remove balanced parenthesised spans, leaving only top-level text. A LIMIT
+   * inside a CTE or subquery does not bound the statement's result, so counting
+   * one lets an unbounded query through.
+   */
+  private stripParenGroups(sql: string): string {
+    let out = '';
+    let depth = 0;
+
+    for (const ch of sql) {
+      if (ch === '(') { depth++; continue; }
+      if (ch === ')') { if (depth > 0) depth--; continue; }
+      if (depth === 0) out += ch;
+    }
+
+    return out;
   }
 
   private hasResultLimit(sqlUpper: string): boolean {

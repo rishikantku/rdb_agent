@@ -31,4 +31,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiAudit: (limit?: number) => ipcRenderer.invoke('ai:audit', limit),
   // Schema preview for debug panel
   aiSchemaPreview: (question: string) => ipcRenderer.invoke('ai:schema-preview', question),
+
+  aiDbSchema: () => ipcRenderer.invoke('ai:db-schema'),
+  aiDbPreview: (tableName: string, limit?: number) => ipcRenderer.invoke('ai:db-preview', tableName, limit),
+  aiSqlRun: (sql: string) => ipcRenderer.invoke('ai:sql-run', sql),
+  /** Subscribe to live pipeline stage events; returns an unsubscribe function */
+  onAiProgress: (cb: (event: any) => void) => {
+    const handler = (_e: any, event: any) => cb(event);
+    ipcRenderer.on('ai:progress', handler);
+    return () => ipcRenderer.removeListener('ai:progress', handler);
+  },
 });

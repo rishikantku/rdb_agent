@@ -132,11 +132,18 @@ ipcMain.handle('ai:query', async (_, question: string, sessionId?: string) => {
       return { success: false, error: 'AI pipeline not initialized. Check LLM_BASE_URL in .env.' };
     }
 
-    const result = await aiServices.orchestrator.processQuery({
-      question,
-      sessionId: sessionId || 'default',
-      userId: 'electron-user',
-    });
+    const result = await aiServices.orchestrator.processQuery(
+      {
+        question,
+        sessionId: sessionId || 'default',
+        userId: 'electron-user',
+      },
+      // Stream stage progress to the window so the UI shows real state, not a guess
+      (event: any) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+        mainWindow.webContents.send('ai:progress', event);
+      }
+    );
 
     return result;
   } catch (err: any) {
@@ -167,6 +174,89 @@ ipcMain.handle('ai:audit', async (_, limit?: number) => {
     entries: aiServices.auditLogger.getRecent(limit || 50),
     metrics: aiServices.auditLogger.getMetrics(),
   };
+});
+
+// Live schema of the analysis database (Neon Postgres), read through the
+// pipeline's own connection so the explorer always shows what answers queries.
+ipcMain.handle('ai:db-schema', async () => {
+  try {
+    await initAIServices();
+    if (!aiServices?.db) return { success: false, error: 'Analysis database not connected.' };
+
+    const schema = await aiServices.db.introspectSchema();
+
+    const withCounts = await Promise.all(
+      schema.tables.map(async (t: any) => {
+        try {
+          const res = await aiServices!.db.executeQuery(`SELECT COUNT(*)::int AS n FROM "${t.name}"`, [], 15000);
+          return { ...t, rowCount: res.rows?.[0]?.n ?? 0 };
+        } catch {
+          return { ...t, rowCount: 0 };
+        }
+      })
+    );
+
+    return { success: true, data: { tables: withCounts, views: schema.views } };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Preview rows from one table. The name is checked against the live schema
+// rather than interpolated blindly.
+ipcMain.handle('ai:db-preview', async (_, tableName: string, limit = 50) => {
+  try {
+    await initAIServices();
+    if (!aiServices?.db) return { success: false, error: 'Analysis database not connected.' };
+
+    const schema = await aiServices.db.introspectSchema();
+    const known = [...schema.tables, ...schema.views].find(
+      (t: any) => t.name.toLowerCase() === String(tableName).toLowerCase()
+    );
+    if (!known) return { success: false, error: `Unknown table "${tableName}".` };
+
+    const rows = Math.min(Math.max(1, Number(limit) || 50), 200);
+    const res = await aiServices.db.executeQuery(`SELECT * FROM "${known.name}" LIMIT ${rows}`, [], 15000);
+    return { success: true, data: res.rows, fields: res.fields };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// Ad-hoc SQL console. Every statement goes through the same guardian the agent's
+// own SQL does, so this cannot write to the bank's database — it is a read-only
+// verification surface, not a back door.
+ipcMain.handle('ai:sql-run', async (_, sql: string) => {
+  try {
+    await initAIServices();
+    if (!aiServices?.db || !aiServices?.guardian) {
+      return { success: false, error: 'Analysis database not connected.' };
+    }
+    if (!sql || !sql.trim()) return { success: false, error: 'Enter a SQL statement to run.' };
+
+    const validation = aiServices.guardian.validate(sql);
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: validation.errors.map((e: any) => e.message).join(' '),
+        blocked: true,
+      };
+    }
+
+    const started = Date.now();
+    const res = await aiServices.db.executeQuery(validation.modifiedSql || sql, [], 30000);
+
+    return {
+      success: true,
+      data: res.rows,
+      fields: res.fields,
+      rowCount: res.rowCount,
+      elapsedMs: Date.now() - started,
+      warnings: validation.warnings.map((w: any) => w.message),
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 });
 
 // Schema retrieval preview (debug tool)

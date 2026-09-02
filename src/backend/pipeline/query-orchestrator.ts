@@ -47,6 +47,15 @@ import { randomUUID } from 'crypto';
 // Types
 // ---------------------------------------------------------------------------
 
+/** Stage-level progress, emitted as the pipeline runs so the UI can show real state. */
+export type ProgressFn = (event: {
+  stage: string;
+  status: 'start' | 'done' | 'error' | 'skipped';
+  detail?: string;
+  index: number;
+  total: number;
+}) => void;
+
 export interface QueryRequest {
   question: string;
   userId?: string;
@@ -208,8 +217,18 @@ export class QueryOrchestrator {
   /**
    * Process a natural language query through the full pipeline.
    */
-  async processQuery(request: QueryRequest): Promise<QueryResponse> {
+  async processQuery(request: QueryRequest, onProgress?: ProgressFn): Promise<QueryResponse> {
     const requestId = `req_${randomUUID().replace(/-/g, '').substring(0, 16)}`;
+
+    // Six nominal stages; repairs are reported against the stage they repair
+    const TOTAL_STAGES = 6;
+    const emit = (stage: string, status: 'start' | 'done' | 'error' | 'skipped', index: number, detail?: string) => {
+      try {
+        onProgress?.({ stage, status, detail, index, total: TOTAL_STAGES });
+      } catch {
+        // progress reporting must never break a query
+      }
+    };
     const pipelineStart = performance.now();
     const stages: PipelineStage[] = [];
     let totalLlmLatency = 0;
@@ -220,7 +239,9 @@ export class QueryOrchestrator {
       // Stage 1: Schema & Semantic Retrieval
       // -------------------------------------------------------------------
       const retrievalStart = performance.now();
+      emit('Understanding the question', 'start', 1);
       const retrieval = this.schemaRetriever.retrieve(request.question);
+      emit('Understanding the question', 'done', 1, `${retrieval.retrievedTableNames.length} tables`);
       stages.push({
         name: 'Schema & Semantic Retrieval',
         status: 'success',
@@ -254,10 +275,12 @@ export class QueryOrchestrator {
       const conversationContext = this.getConversationContext(request);
 
       let plan: SQLPlan;
+      emit('Planning the query', 'start', 2);
       if (this.config.fastMode && !this.shouldPlan(request.question)) {
         // No LLM call — the question itself carries the intent, and generation
         // reads the schema and semantics directly.
         plan = this.buildInlinePlan(request.question, retrieval, conversationContext);
+        emit('Planning the query', 'skipped', 2, 'not needed for this question');
       } else {
         plan = await this.generateSQLPlan(request.question, retrieval, conversationContext);
         const planLatency = Math.round(performance.now() - planStart);
@@ -268,13 +291,16 @@ export class QueryOrchestrator {
           durationMs: planLatency,
           details: `Intent: ${plan.intent}`,
         });
+        emit('Planning the query', 'done', 2, `${planLatency} ms`);
       }
 
       // -------------------------------------------------------------------
       // Stage 3: SQL Generation
       // -------------------------------------------------------------------
       const genStart = performance.now();
+      emit('Writing SQL', 'start', 3);
       let sql = await this.generateSQL(plan, retrieval);
+      emit('Writing SQL', 'done', 3, `${Math.round(performance.now() - genStart)} ms`);
       const genLatency = Math.round(performance.now() - genStart);
       totalLlmLatency += genLatency;
       stages.push({
@@ -288,7 +314,10 @@ export class QueryOrchestrator {
       // Stage 4: SQL Validation
       // -------------------------------------------------------------------
       const valStart = performance.now();
+      emit('Checking safety', 'start', 4);
       let validation = this.guardian.validate(sql);
+      emit('Checking safety', validation.valid ? 'done' : 'error', 4,
+        validation.valid ? 'passed guardrails' : 'repairing');
       stages.push({
         name: 'SQL Validation',
         status: validation.valid ? 'success' : 'error',
@@ -334,8 +363,10 @@ export class QueryOrchestrator {
       // Stage 5: SQL Execution
       // -------------------------------------------------------------------
       const execStart = performance.now();
+      emit('Querying the database', 'start', 5);
       try {
         const result = await this.db.executeQuery(executableSql, [], this.config.sqlTimeoutMs);
+        emit('Querying the database', 'done', 5, `${result.rowCount} rows`);
         const execMs = Math.round(performance.now() - execStart);
         stages.push({
           name: 'SQL Execution',
@@ -351,6 +382,7 @@ export class QueryOrchestrator {
         const truncated = result.rowCount >= this.config.maxResultRows;
 
         // Zero rows is the one case where the user needs an explanation, not a summary
+        emit(result.rowCount === 0 ? 'Explaining the empty result' : 'Summarising', 'start', 6);
         let emptyDiagnosis: EmptyResultProbe[] | undefined;
         let summary: { summary: string; filters: string[] };
         if (result.rowCount === 0) {
@@ -367,6 +399,8 @@ export class QueryOrchestrator {
           status: 'success',
           durationMs: summaryLatency,
         });
+
+        emit('Summarising', 'done', 6);
 
         // Update conversation context
         this.updateConversationContext(request, sql, plan, retrieval.retrievedTableNames);
@@ -540,9 +574,105 @@ export class QueryOrchestrator {
         .filter((r: any) => r.lo && r.hi)
         .map((r: any) => `  ${r.col}: ${String(r.lo).slice(0, 10)} to ${String(r.hi).slice(0, 10)}`);
 
+      // Period columns are often integers or text (financial_year, quarter), not
+      // date types — invisible to the scan above, yet exactly what period filters
+      // are written against. Without their ranges the model guesses years that
+      // hold no rows.
+      const periodCols = await this.db.executeQuery(
+        `SELECT table_name, column_name, data_type
+           FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND (
+                 (data_type IN ('integer','bigint','smallint','numeric')
+                   AND (column_name ~* '(financial|fiscal)_year' OR column_name ~* '(^|_)year$'))
+              OR (data_type IN ('character varying','text','character')
+                   AND column_name ~* '(quarter|period)')
+            )
+          ORDER BY table_name, column_name`,
+        [],
+        this.config.sqlTimeoutMs
+      );
+
+      for (const c of periodCols.rows as any[]) {
+        try {
+          const isText = String(c.data_type).startsWith('char') || c.data_type === 'text';
+          if (isText) {
+            const vals = await this.db.executeQuery(
+              `SELECT DISTINCT ${c.column_name} AS v FROM ${c.table_name}
+                WHERE ${c.column_name} IS NOT NULL ORDER BY 1 LIMIT 12`,
+              [], this.config.sqlTimeoutMs
+            );
+            const list = vals.rows.map((r: any) => r.v).join(', ');
+            if (list) lines.push(`  ${c.table_name}.${c.column_name}: ${list}`);
+          } else {
+            const mm = await this.db.executeQuery(
+              `SELECT MIN(${c.column_name})::text lo, MAX(${c.column_name})::text hi FROM ${c.table_name}`,
+              [], this.config.sqlTimeoutMs
+            );
+            const r = mm.rows[0] as any;
+            if (r?.lo && r?.hi) lines.push(`  ${c.table_name}.${c.column_name}: ${r.lo} to ${r.hi}`);
+          }
+        } catch {
+          // a column we cannot profile is simply omitted
+        }
+      }
+
+      // Categorical filter values. The schema names a column but never its
+      // contents, so the model invents literals like 'Home' when the stored
+      // value is 'Home Loan' — the filter matches nothing and the answer comes
+      // back NULL or empty while looking perfectly valid.
+      try {
+        const catCols = await this.db.executeQuery(
+          `SELECT table_name, column_name
+             FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND data_type IN ('character varying','text','character')
+              AND column_name ~* '(status|type_name|category|priority|risk|segment|gender|_name$)'
+              AND table_name NOT LIKE 'vw_%'
+            ORDER BY table_name, column_name`,
+          [],
+          this.config.sqlTimeoutMs
+        );
+
+        // One round trip for every candidate column
+        const unions = (catCols.rows as any[]).map(
+          (c) =>
+            `SELECT '${c.table_name}.${c.column_name}' AS col, v::text AS val FROM ` +
+            `(SELECT DISTINCT ${c.column_name} AS v FROM ${c.table_name} ` +
+            ` WHERE ${c.column_name} IS NOT NULL LIMIT 26) s_${c.table_name}_${c.column_name}`
+        );
+
+        if (unions.length > 0) {
+          const vals = await this.db.executeQuery(unions.join(' UNION ALL '), [], this.config.sqlTimeoutMs);
+          const byCol = new Map<string, string[]>();
+          for (const r of vals.rows as any[]) {
+            if (!byCol.has(r.col)) byCol.set(r.col, []);
+            byCol.get(r.col)!.push(r.val);
+          }
+
+          const catLines: string[] = [];
+          for (const [col, values] of byCol) {
+            // 26 means we hit the cap — not an enumerable category
+            if (values.length === 0 || values.length > 25) continue;
+            catLines.push(`  ${col}: ${values.sort().join(' | ')}`);
+          }
+
+          if (catLines.length > 0) {
+            lines.push('');
+            lines.push('EXACT VALUES stored in categorical columns — filter using these');
+            lines.push('strings verbatim. Never invent or abbreviate a value:');
+            lines.push(...catLines);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Orchestrator] Could not profile categorical values: ${err.message}`);
+      }
+
       this.dataCoverage = lines.length
         ? `\n=== ACTUAL DATA COVERAGE (today is ${new Date().toISOString().slice(0, 10)}) ===\n` +
-          `These are the real date ranges present. Any time window must fall inside them.\n` +
+          `These are the real ranges present. Any period you filter on must fall inside them.\n` +
+          `Tables do not all cover the same span — when a question spans two tables, use the\n` +
+          `overlap of their ranges, never a period that only one of them has.\n` +
           lines.join('\n') + '\n'
         : '';
     } catch (err: any) {
@@ -568,15 +698,17 @@ export class QueryOrchestrator {
       'while', 'despite', 'whereas',
       'trend', 'growth', 'declin', 'increas', 'decreas',
       'percentile', 'median', 'top 5%', 'top 10%', 'bottom',
-      'above their', 'below their', 'above the average', 'below the average',
+      // Any comparison against a group statistic needs a plan — these are the
+      // queries that silently returned zero rows without one.
+      'average', 'median', 'above', 'below', 'exceeds', 'faster than', 'slower than',
       'in each', 'for every', 'within each', 'per region', 'per department',
-      'before and after', 'unresolved', 'attrition',
+      'before and after', 'unresolved', 'attrition', 'opposite', ' but ',
     ];
 
     if (complexSignals.some((sig) => q.includes(sig))) return true;
 
     // Long questions tend to carry several conditions even without a keyword
-    return question.trim().split(/\s+/).length > 18;
+    return question.trim().split(/\s+/).length > 14;
   }
 
   /**
@@ -692,6 +824,20 @@ RULES:
 14. With SELECT DISTINCT, every ORDER BY expression must also appear in the select
    list. If you need to order by something else, drop DISTINCT and use GROUP BY.
 15. Prefer explicit column lists over SELECT *.
+17. Comparing a row against its GROUP's statistic (its department's average, its
+    region's median, its branch's percentile) — compute that statistic in a CTE
+    grouped ONLY by the group key, then join back on that key:
+      WITH dept_median AS (
+        SELECT department_id, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salary) AS m
+        FROM employees WHERE status='ACTIVE' GROUP BY department_id
+      )
+      SELECT ... FROM employees e JOIN dept_median d USING (department_id)
+       WHERE e.salary < d.m
+    Never put the row's own identifier in that GROUP BY. Grouping by employee_id
+    makes every group a single row, so the "median" equals that row's own value
+    and the comparison is never true — the query returns zero rows.
+18. "Improved/declined for N consecutive periods" is N strict adjacent comparisons
+    via LAG, not COUNT(*) >= 1 of any improvement anywhere in the history.
 16. Relative time windows ("last six months", "recent quarters", "year over year")
     must be anchored to the DATA, never to hardcoded calendar years. The dataset
     does not necessarily end today. Anchor to the table's own latest date, e.g.

@@ -13,14 +13,14 @@ const SchemaExplorer = () => {
   }, []);
 
   const fetchSchema = async () => {
-    const res = await window.electronAPI.dbGetSchema();
+    const res = await window.electronAPI.aiDbSchema();
     if (res.success) setSchema(res.data);
   };
 
   const handleTableClick = async (tableName: string) => {
     setSelectedTable(tableName);
     setLoading(true);
-    const res = await window.electronAPI.dbQuery(`SELECT * FROM ${tableName} LIMIT 50`);
+    const res = await window.electronAPI.aiDbPreview(tableName, 50);
     if (res.success) setPreviewData(res.data!);
     setLoading(false);
   };
@@ -36,14 +36,14 @@ const SchemaExplorer = () => {
       {/* Sidebar Explorer */}
       <div className="glass" style={{ width: '300px', flexShrink: 0, padding: '1rem', overflowY: 'auto' }}>
         <h3 style={{ fontSize: '1rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <TableIcon size={18} color="#64ffda" /> Database Objects
+          <TableIcon size={18} color="var(--accent)" /> Database Objects
         </h3>
 
         <div style={{ paddingLeft: '0.5rem' }}>
           {/* Tables Section */}
           <div style={{ marginBottom: '1rem' }}>
             <div 
-              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '5px', color: '#64ffda', fontWeight: 600 }}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '5px', color: 'var(--accent)', fontWeight: 600 }}
               onClick={() => toggleExpand('tables')}
             >
               {expanded.includes('tables') ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -68,7 +68,7 @@ const SchemaExplorer = () => {
           {/* Views Section */}
           <div>
             <div 
-              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '5px', color: '#fbbf24', fontWeight: 600 }}
+              style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '5px', color: 'var(--accent)', fontWeight: 600 }}
               onClick={() => toggleExpand('views')}
             >
               {expanded.includes('views') ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -98,7 +98,7 @@ const SchemaExplorer = () => {
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
               <h2>{selectedTable} Preview</h2>
-              <div style={{ fontSize: '0.8rem', color: '#8892b0' }}>Showing up to 50 rows</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--ink-3)' }}>Showing up to 50 rows</div>
             </div>
 
             {loading ? (
@@ -129,7 +129,7 @@ const SchemaExplorer = () => {
             )}
           </>
         ) : (
-          <div className="glass" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: '#8892b0' }}>
+          <div className="glass" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--ink-3)' }}>
             <List size={48} style={{ marginBottom: '1rem', opacity: 0.5 }} />
             <p>Select a table or view from the explorer to preview schema and data.</p>
           </div>

@@ -15,12 +15,12 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
       securityLevel: 'loose',
       fontFamily: 'Inter, sans-serif',
       themeVariables: {
-        primaryColor: '#64ffda',
-        primaryTextColor: '#e6f1ff',
-        primaryBorderColor: '#64ffda',
-        lineColor: '#8892b0',
+        primaryColor: 'var(--accent)',
+        primaryTextColor: 'var(--ink)',
+        primaryBorderColor: 'var(--accent)',
+        lineColor: 'var(--ink-3)',
         secondaryColor: '#112240',
-        tertiaryColor: '#0a192f',
+        tertiaryColor: 'var(--surface-2)',
       }
     });
   }, []);
@@ -47,10 +47,10 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
   return (
     <div className="glass fade-in" style={{ padding: '1.5rem', marginTop: '1.5rem', background: 'rgba(2, 12, 27, 0.6)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h4 style={{ margin: 0, color: '#64ffda', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
+        <h4 style={{ margin: 0, color: 'var(--accent)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
           Visual Implementation Strategy
         </h4>
-        <span style={{ fontSize: '0.7rem', color: '#8892b0' }}>Interactive Data Flow</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--ink-3)' }}>Interactive Data Flow</span>
       </div>
       <div ref={containerRef} style={{ width: '100%', display: 'flex', justifyContent: 'center', overflowX: 'auto' }} />
       <style>{`
@@ -60,16 +60,16 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
         }
         .mermaid .node rect, .mermaid .node circle, .mermaid .node ellipse, .mermaid .node polygon {
           fill: rgba(100, 255, 218, 0.05) !important;
-          stroke: #64ffda !important;
+          stroke: var(--accent) !important;
           stroke-width: 1px !important;
         }
         .mermaid .edgeLabel {
           background-color: transparent !important;
-          color: #8892b0 !important;
+          color: var(--ink-3) !important;
           font-size: 0.75rem !important;
         }
         .mermaid .messageText {
-          fill: #e6f1ff !important;
+          fill: var(--ink) !important;
         }
       `}</style>
     </div>

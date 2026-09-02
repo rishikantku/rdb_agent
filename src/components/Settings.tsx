@@ -35,7 +35,7 @@ const Settings = () => {
 
       <div className="glass" style={{ padding: '2rem', maxWidth: '700px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h3 style={{ margin: 0, color: '#fbbf24' }}>Self-Hosted Model</h3>
+          <h3 style={{ margin: 0, color: 'var(--accent)' }}>Self-Hosted Model</h3>
           <button onClick={refresh} disabled={loading}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}>
             <RefreshCw size={14} /> {loading ? 'Checking…' : 'Re-check'}
@@ -43,9 +43,9 @@ const Settings = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.75rem 1rem', borderRadius: '5px', marginBottom: '1.5rem',
-          background: ok ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-          border: `1px solid ${ok ? 'rgba(16,185,129,0.35)' : 'rgba(239,68,68,0.35)'}`,
-          color: ok ? '#10b981' : '#ef4444' }}>
+          background: ok ? 'var(--success-weak)' : 'var(--danger-weak)',
+          border: `1px solid ${ok ? 'rgba(63,182,139,0.35)' : 'rgba(222,106,100,0.35)'}`,
+          color: ok ? 'var(--success)' : 'var(--danger)' }}>
           {ok ? <ShieldCheck size={18} /> : <AlertTriangle size={18} />}
           <span style={{ fontWeight: 600 }}>
             {loading ? 'Checking engine…' : ok ? 'Model online' : 'Model unreachable'}
@@ -61,12 +61,12 @@ const Settings = () => {
         <Row icon={<ShieldCheck size={16} />} label="Schema loaded" value={schema ? `${schema.tables} tables, ${schema.terms} business terms` : '—'} />
 
         {(llm?.error || health?.error) && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '5px', background: 'rgba(239,68,68,0.08)', color: '#ef4444', fontSize: '0.8rem' }}>
+          <div style={{ marginTop: '1rem', padding: '0.75rem', borderRadius: '5px', background: 'var(--danger-weak)', color: 'var(--danger)', fontSize: '0.8rem' }}>
             {llm?.error || health?.error}
           </div>
         )}
 
-        <p style={{ marginTop: '1.5rem', marginBottom: 0, fontSize: '0.78rem', color: '#8892b0', lineHeight: 1.6 }}>
+        <p style={{ marginTop: '1.5rem', marginBottom: 0, fontSize: '0.78rem', color: 'var(--ink-3)', lineHeight: 1.6 }}>
           The endpoint and model are set by <code>LLM_BASE_URL</code> and <code>LLM_MODEL</code> in the
           environment configuration. Because the model is open-weight and self-hosted, it can run inside
           the bank's own data centre with no third-party API calls.
@@ -78,9 +78,9 @@ const Settings = () => {
 
 const Row = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) => (
   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0.6rem 0', borderBottom: '1px solid var(--border)' }}>
-    <span style={{ color: '#64ffda' }}>{icon}</span>
-    <span style={{ color: '#8892b0', fontSize: '0.85rem', minWidth: '130px' }}>{label}</span>
-    <span style={{ color: '#e6f1ff', fontSize: '0.85rem', wordBreak: 'break-word' }}>{value}</span>
+    <span style={{ color: 'var(--accent)' }}>{icon}</span>
+    <span style={{ color: 'var(--ink-3)', fontSize: '0.85rem', minWidth: '130px' }}>{label}</span>
+    <span style={{ color: 'var(--ink)', fontSize: '0.85rem', wordBreak: 'break-word' }}>{value}</span>
   </div>
 );
 

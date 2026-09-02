@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Users, Landmark, CreditCard, Activity, Database, FolderOpen, Search, Play, FileSpreadsheet, FileText,
-  Terminal, ShieldAlert, PlusCircle, Database as DatabaseIcon, Settings2, Trash2, Box, Layers, BarChart3,
-  Network, Mic, MicOff, AlertTriangle, CheckCircle2, Clock, ShieldCheck
+import {
+  Users, Landmark, CreditCard, Activity, Search,
+  Terminal, ShieldAlert, Database as DatabaseIcon, Box, Layers,
+  Network, Mic, MicOff, AlertTriangle, CheckCircle2, ShieldCheck, Table2, X, Lock
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import ConnectionModal from './ConnectionModal';
 import QueryFlow from './QueryFlow';
+import SqlConsole from './SqlConsole';
+import AccessControlPanel from './AccessControlPanel';
+import { permissionService } from '../lib/permissions';
+import type { AuthorizationDecision, RoleId } from '../lib/permissions';
 
 interface DashboardProps {
   onConnectionChange: (connected: boolean, name?: string) => void;
@@ -21,6 +24,8 @@ interface StatCardProps {
   icon: React.ReactNode;
   trend?: string;
   positive?: boolean;
+  /** Table this card counts — double-clicking opens its rows */
+  table?: string;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConnected }) => {
@@ -33,11 +38,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [schema, setSchema] = useState<any>(null);
+  const [, setSchema] = useState<any>(null);
   const [dbName, setDbName] = useState<string>('Disconnected');
-  const [configs, setConfigs] = useState<any[]>([]);
-  const [activeId, setActiveId] = useState<string>('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [cards, setCards] = useState<StatCardProps[]>([]);
   // Pipeline response detail — summary, guardrails, and honest empty/truncated states
   const [summary, setSummary] = useState<string>('');
@@ -48,85 +50,123 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const [clarifications, setClarifications] = useState<any[] | null>(null);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [rowCount, setRowCount] = useState<number | null>(null);
+  // The pipeline holds its own database connection (DATABASE_URL), separate from
+  // the environment picker above. Ask is gated on the engine, not on that picker.
+  const [aiReady, setAiReady] = useState(false);
+  const [aiModel, setAiModel] = useState<string>('');
+  // Table preview opened by double-clicking a metric card
+  const [peekTable, setPeekTable] = useState<string | null>(null);
+  const [peekRows, setPeekRows] = useState<any[]>([]);
+  const [peekLoading, setPeekLoading] = useState(false);
+  const [peekError, setPeekError] = useState<string | null>(null);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  // Live pipeline stages, streamed from the orchestrator as it works
+  const [steps, setSteps] = useState<{ stage: string; status: string; detail?: string }[]>([]);
+  const [progressPct, setProgressPct] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  // Simulated role-based access. The decision is made before any SQL is generated.
+  const [roleId, setRoleId] = useState<RoleId>('DGM');
+  const [denied, setDenied] = useState<AuthorizationDecision | null>(null);
+  const [authorized, setAuthorized] = useState<AuthorizationDecision | null>(null);
+  const [accessPanelOpen, setAccessPanelOpen] = useState(false);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  useEffect(() => { loadConfigs(); }, []);
+  useEffect(() => {
+    checkEngine();
+    loadEnvironment();
+    window.electronAPI.settingsGet('activeRole').then((r) => { if (r) setRoleId(r as RoleId); }).catch(() => {});
+  }, []);
+
+  const changeRole = (id: RoleId) => {
+    setRoleId(id);
+    setDenied(null);
+    setAuthorized(null);
+    window.electronAPI.settingsSet('activeRole', id).catch(() => {});
+  };
 
   useEffect(() => {
-    if (externalConnected) fetchDataAfterConnect();
-    else { setCards([]); setSchema(null); }
-  }, [externalConnected]);
+    const off = window.electronAPI.onAiProgress((e) => {
+      setProgressPct(Math.round(((e.index - (e.status === 'start' ? 0.5 : 0)) / e.total) * 100));
+      setSteps((prev) => {
+        const next = [...prev];
+        const at = next.findIndex((s2) => s2.stage === e.stage);
+        const entry = { stage: e.stage, status: e.status, detail: e.detail };
+        if (at >= 0) next[at] = entry; else next.push(entry);
+        return next;
+      });
+    });
+    return off;
+  }, []);
 
-  const loadConfigs = async () => {
-    const res = await window.electronAPI.dbGetConfigs();
-    setConfigs(res || []);
-  };
+  useEffect(() => {
+    if (!loading) return;
+    const started = Date.now();
+    const t = setInterval(() => setElapsedSec((Date.now() - started) / 1000), 100);
+    return () => clearInterval(t);
+  }, [loading]);
 
-  const handleSwitch = async (id: string) => {
-    if (id === 'add-new') { setIsModalOpen(true); return; }
-    setLoading(true); setError(null); setResults([]); setSql(''); setMermaidChart('');
+  const openTable = async (table?: string) => {
+    if (!table) return;
+    setPeekTable(table); setPeekRows([]); setPeekError(null); setPeekLoading(true);
     try {
-      if (id === 'load-sample') {
-        const res = await window.electronAPI.dbConnect();
-        if (res.success) { setActiveId('load-sample'); setDbName('Nexus Banking DB'); onConnectionChange(true, 'Nexus Banking DB'); await fetchDataAfterConnect(); }
-        else throw new Error(res.error);
-      } else {
-        const res = await window.electronAPI.dbConnectConfig(id);
-        if (res.success) {
-          const config = configs.find(c => c.id === id);
-          setActiveId(id); setDbName(config.name); onConnectionChange(true, config.name); await fetchDataAfterConnect();
-        } else throw new Error(res.error);
-      }
-    } catch (err: any) { setError(`Connection Failed: ${err.message}`); onConnectionChange(false); }
-    setLoading(false);
+      const res = await window.electronAPI.aiDbPreview(table, 50);
+      if (res.success) setPeekRows(res.data || []);
+      else setPeekError(res.error || 'Could not read that table.');
+    } catch (err: any) {
+      setPeekError(err.message);
+    }
+    setPeekLoading(false);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (id === 'load-sample') return;
-    if (confirm('Delete this connection?')) {
-      await window.electronAPI.dbDeleteConfig(id); loadConfigs();
-      if (activeId === id) { onConnectionChange(false); setActiveId(''); setDbName('Disconnected'); }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPeekTable(null);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setConsoleOpen(true); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const checkEngine = async () => {
+    try {
+      const h = await window.electronAPI.aiHealth();
+      setAiReady(!!h?.llm?.healthy && !!h?.database?.connected);
+      setAiModel(h?.llm?.model || '');
+    } catch {
+      setAiReady(false);
     }
   };
 
-  const fetchDataAfterConnect = async () => {
+  // Everything on this screen comes from the Neon Postgres analysis database —
+  // the same connection that answers questions, so metadata and answers agree.
+  const loadEnvironment = async () => {
     setLoading(true);
-    const schemaRes = await window.electronAPI.dbGetSchema();
-    if (schemaRes.success) { setSchema(schemaRes.data); await generateMetrics(schemaRes.data); }
-    setLoading(false);
-  };
-
-  const generateMetrics = async (currentSchema: any) => {
-    const tableNames = (currentSchema.tables || []).map((t: any) => t.name.toLowerCase());
-    const isBanking = tableNames.includes('customers') && tableNames.includes('accounts');
-    if (isBanking) {
-      try {
-        const customers = await window.electronAPI.dbQuery('SELECT COUNT(*) as count FROM Customers');
-        const accounts = await window.electronAPI.dbQuery('SELECT COUNT(*) as count, SUM(balance) as total FROM Accounts');
-        const trans = await window.electronAPI.dbQuery('SELECT COUNT(*) as count FROM Transactions');
-        setCards([
-          { title: 'Total Customers', value: customers.data?.[0]?.count || 0, icon: <Users size={20} />, trend: '+12%', positive: true },
-          { title: 'Active Accounts', value: accounts.data?.[0]?.count || 0, icon: <Landmark size={20} />, trend: '+5%', positive: true },
-          { title: 'Liquidity', value: `₹${((accounts.data?.[0]?.total || 0) / 1000000).toFixed(1)}M`, icon: <CreditCard size={20} />, trend: '-2%', positive: false },
-          { title: 'Activity', value: trans.data?.[0]?.count || 0, icon: <Activity size={20} />, trend: '+28%', positive: true },
-        ]);
-        return;
-      } catch (e) { console.warn('Banking stats failed'); }
-    }
     try {
-      const tableCount = currentSchema.tables.length; const viewCount = currentSchema.views.length;
-      let totalRows = 0; const sampleTables = currentSchema.tables.slice(0, 5);
-      for (const t of sampleTables) { const res = await window.electronAPI.dbQuery(`SELECT COUNT(*) as count FROM ${t.name}`); totalRows += res.data?.[0]?.count || 0; }
-      setCards([
-        { title: 'Total Tables', value: tableCount, icon: <Box size={20} />, trend: 'Schema Root', positive: true },
-        { title: 'Total Views', value: viewCount, icon: <Layers size={20} />, trend: 'Virtual', positive: true },
-        { title: 'Sampling Records', value: totalRows >= 1000 ? `${(totalRows / 1000).toFixed(1)}k` : totalRows, icon: <BarChart3 size={20} />, trend: 'Top 5 Tables', positive: true },
-        { title: 'Env Capacity', value: `${tableNames.length * 12} Objects`, icon: <DatabaseIcon size={20} />, trend: 'Healthy', positive: true },
-      ]);
-    } catch (e) { console.error('Generic stats failed'); }
+      const res = await window.electronAPI.aiDbSchema();
+      if (res.success && res.data) {
+        setSchema(res.data);
+        const byName = (n: string) =>
+          res.data!.tables.find((t: any) => t.name.toLowerCase() === n)?.rowCount ?? 0;
+
+        setCards([
+          { title: 'Customers', value: byName('customers').toLocaleString('en-IN'), icon: <Users size={20} />, table: 'customers' },
+          { title: 'Accounts', value: byName('accounts').toLocaleString('en-IN'), icon: <Landmark size={20} />, table: 'accounts' },
+          { title: 'Loans', value: byName('loans').toLocaleString('en-IN'), icon: <CreditCard size={20} />, table: 'loans' },
+          { title: 'Transactions', value: byName('transactions').toLocaleString('en-IN'), icon: <Activity size={20} />, table: 'transactions' },
+          { title: 'Branches', value: byName('branches').toLocaleString('en-IN'), icon: <Box size={20} />, table: 'branches' },
+          { title: 'Tables', value: `${res.data!.tables.length} + ${res.data!.views.length} views`, icon: <Layers size={20} /> },
+        ]);
+        onConnectionChange(true, 'Neon Postgres');
+        setDbName('Neon Postgres');
+      } else {
+        setError(res.error || 'Could not read the analysis database.');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setLoading(false);
   };
 
   const toggleListening = useCallback(async () => {
@@ -182,6 +222,8 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
     setResults([]); setSql(''); setMermaidChart(''); setError(null);
     setSummary(''); setFilters([]); setTruncated(false); setDiagnosis(null);
     setStages([]); setClarifications(null); setElapsedMs(null); setRowCount(null);
+    setSteps([]); setProgressPct(0); setElapsedSec(0);
+    setDenied(null); setAuthorized(null);
   };
 
   // Runs the full on-prem pipeline: schema retrieval → semantic resolution →
@@ -189,7 +231,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const handleAsk = async () => {
     setLoading(true); resetResponse();
     try {
-      if (!externalConnected) throw new Error('Connect a database first.');
+      if (!aiReady) throw new Error('The analysis engine is not reachable. Check the Inference Engine screen.');
+
+      // Authorization is decided before the question reaches the model, so a
+      // restricted request never generates or executes SQL.
+      const decision = await permissionService.authorize({ question: prompt, roleId });
+      if (!decision.allowed) {
+        setDenied(decision);
+        setLoading(false);
+        return;
+      }
+      setAuthorized(decision);
 
       const res = await window.electronAPI.aiQuery(prompt, 'demo-session');
 
@@ -216,26 +268,18 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
     setLoading(false);
   };
 
-  const handleExecute = async () => {
-    setLoading(true); setError(null);
-    try {
-      const res = await window.electronAPI.dbQuery(sql);
-      if (res.success) { if (res.data && res.data.length > 0) setResults(res.data); else setError("No records found."); }
-      else throw new Error(res.error);
-    } catch (err: any) { setError(`Execution Error: ${err.message}`); }
-    setLoading(false);
-  };
-
   const exportToXLSX = () => {
     const ws = XLSX.utils.json_to_sheet(results); const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results"); XLSX.writeFile(wb, "nexus_report.xlsx");
   };
 
+  const currentRole = permissionService.getRole(roleId);
+
   const exportToPDF = () => {
     if (results.length === 0) return;
     const doc = new jsPDF(); doc.text(`Nexus Data Report`, 14, 15);
     const tableColumn = Object.keys(results[0]); const tableRows = results.map(row => Object.values(row).map(v => String(v)));
-    autoTable(doc, { head: [tableColumn], body: tableRows, startY: 25, styles: { fontSize: 8 }, headStyles: { fillColor: [10, 25, 47] } });
+    autoTable(doc, { head: [tableColumn], body: tableRows, startY: 25, styles: { fontSize: 8 }, headStyles: { fillColor: [20, 24, 31] } });
     doc.save(`Nexus_Report_${Date.now()}.pdf`);
   };
 
@@ -244,64 +288,95 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
         <div>
           <h1>Nexus Command Center</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#8892b0', fontSize: '0.9rem' }}>
-            <DatabaseIcon size={14} color={externalConnected ? '#64ffda' : '#8892b0'} />
-            <span>{externalConnected ? `Environment: ${dbName}` : 'Select an environment to begin.'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--ink-3)', fontSize: '0.9rem' }}>
+            <DatabaseIcon size={14} color={aiReady ? 'var(--accent)' : 'var(--ink-3)'} />
+            <span>{aiReady ? `Analysis engine: ${aiModel} (on-premise)` : 'Analysis engine unavailable'}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div className="glass" style={{ display: 'flex', alignItems: 'center', padding: '0.2rem 0.5rem', background: 'rgba(10, 25, 47, 0.5)' }}>
-            <Settings2 size={16} style={{ margin: '0 8px', color: '#8892b0' }} />
-            <select value={activeId} onChange={(e) => handleSwitch(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#e6f1ff', padding: '0.5rem', outline: 'none', fontSize: '0.85rem' }}>
-              <option value="" disabled>Select Environment...</option>
-              <option value="load-sample">🌟 Nexus Banking DB</option>
-              <hr />
-              {configs.map(c => <option key={c.id} value={c.id}>{c.name} ({c.type})</option>)}
-              <option value="add-new">+ Add New Connection</option>
-            </select>
-          </div>
-          {activeId && activeId !== 'load-sample' && <button onClick={(e) => handleDelete(activeId, e)} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '0.7rem' }}><Trash2 size={16} /></button>}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <button onClick={() => setConsoleOpen(true)} title="SQL Console (⌘K)"
+          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '0.5rem 0.9rem', background: 'var(--accent-weak)', border: '1px solid var(--accent-line)', color: 'var(--accent)' }}>
+          <Terminal size={14} /> SQL Console
+        </button>
+        <div className="glass" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.45rem 0.9rem', background: 'var(--surface-2)' }}>
+          <DatabaseIcon size={14} color="var(--accent)" />
+          <span style={{ fontSize: '0.8rem', color: 'var(--ink)' }}>{dbName}</span>
+          <button onClick={loadEnvironment} disabled={loading}
+            style={{ background: 'transparent', border: 'none', padding: '0 0 0 6px', color: 'var(--ink-3)' }} title="Refresh">
+            <Layers size={14} />
+          </button>
+        </div>
         </div>
       </div>
 
-      {error && <div className="glass fade-in" style={{ padding: '1rem', borderLeft: '4px solid #ef4444', color: '#ef4444', display: 'flex', gap: '10px', marginBottom: '1.5rem' }}><ShieldAlert size={20} /><span>{error}</span></div>}
+      {error && <div className="glass fade-in" style={{ padding: '1rem', borderLeft: '4px solid var(--danger)', color: 'var(--danger)', display: 'flex', gap: '10px', marginBottom: '1.5rem' }}><ShieldAlert size={20} /><span>{error}</span></div>}
 
       <div className="glass" style={{ padding: '2rem', marginBottom: '2rem', background: 'rgba(17, 34, 64, 0.4)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Activity size={24} color={externalConnected ? "#64ffda" : "#8892b0"} />
+            <Activity size={24} color={externalConnected ? "var(--accent)" : "var(--ink-3)"} />
             <h3 style={{ margin: 0 }}>Natural Language Diagnostics</h3>
-            {externalConnected && <span className="badge badge-active" style={{ marginLeft: '10px', background: 'rgba(100, 255, 218, 0.2)' }}>AI READY</span>}
+            {aiReady && <span className="badge badge-active" style={{ marginLeft: '10px', background: 'var(--accent-weak)' }}>AI READY</span>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#8892b0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: 'var(--ink-3)' }}>
             <input 
               type="checkbox" 
               id="vi-strategy" 
               checked={includeVisualStrategy} 
               onChange={(e) => setIncludeVisualStrategy(e.target.checked)}
-              style={{ accentColor: '#64ffda', cursor: 'pointer' }}
+              style={{ accentColor: 'var(--accent)', cursor: 'pointer' }}
             />
             <label htmlFor="vi-strategy" style={{ cursor: 'pointer' }}>Include Visual Implementation Strategy</label>
           </div>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem', padding: '.7rem .9rem', borderRadius: 'var(--r-md)', background: 'var(--surface-2)', border: '1px solid var(--hairline)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)' }}>Current role</span>
+            <select
+              value={roleId}
+              onChange={(e) => changeRole(e.target.value as RoleId)}
+              style={{ width: 'auto', padding: '.35rem 1.6rem .35rem .6rem', fontWeight: 600, fontSize: '.84rem' }}
+            >
+              {permissionService.listRoles().map((r) => (
+                <option key={r.id} value={r.id}>{r.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '.79rem', color: 'var(--ink-2)' }}>
+            <span style={{ color: 'var(--ink-3)' }}>Scope</span>
+            <span style={{ fontWeight: 500 }}>{currentRole.scope.label}</span>
+          </div>
+
+          <span className={`badge ${currentRole.restrictions.length === 0 ? 'badge-active' : ''}`}
+            style={currentRole.restrictions.length ? { color: 'var(--warn)', borderColor: 'rgba(217,154,69,0.35)', background: 'var(--warn-weak)' } : undefined}>
+            {currentRole.restrictions.length === 0 ? 'Full access' : 'Restricted'}
+          </span>
+
+          <button onClick={() => setAccessPanelOpen(true)}
+            style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '.76rem', padding: '.38rem .75rem', background: 'transparent', border: '1px solid var(--hairline)', color: 'var(--ink-2)' }}>
+            <ShieldCheck size={13} /> Access Control
+          </button>
+        </div>
+
         <div style={{ display: 'flex', gap: '1rem', position: 'relative' }}>
           <div style={{ flex: 1, position: 'relative' }}>
             <textarea 
               value={prompt} 
               onChange={(e) => setPrompt(e.target.value)} 
-              placeholder={externalConnected ? "What can I analyze for you today?" : "Select an environment first."} 
-              disabled={!externalConnected || loading} 
+              placeholder={aiReady ? "What can I analyze for you today?" : "Analysis engine unavailable — see Inference Engine."} 
+              disabled={!aiReady || loading} 
               style={{ minHeight: '80px', width: '100%', paddingRight: '45px' }} 
             />
             <button
               onClick={toggleListening}
               className={isListening ? 'mic-pulse' : ''}
-              disabled={!externalConnected || loading}
+              disabled={!aiReady || loading}
               style={{
                 position: 'absolute',
                 top: '10px',
                 right: '10px',
-                background: 'rgba(10, 25, 47, 0.8)',
+                background: 'var(--surface-2)',
                 border: '1px solid var(--border)',
                 borderRadius: '50%',
                 width: '35px',
@@ -314,29 +389,99 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
                 zIndex: 10
               }}
             >
-              {isListening ? <MicOff size={18} color="#64ffda" /> : <Mic size={18} color="#8892b0" />}
+              {isListening ? <MicOff size={18} color="var(--accent)" /> : <Mic size={18} color="var(--ink-3)" />}
             </button>
           </div>
-          <button onClick={handleAsk} disabled={!externalConnected || loading || !prompt} style={{ padding: '0 2rem', height: '80px' }}>{loading ? '...' : <Search size={24} />}</button>
+          <button onClick={handleAsk} disabled={!aiReady || loading || !prompt} style={{ padding: '0 2rem', height: '80px' }}>{loading ? '...' : <Search size={24} />}</button>
         </div>
 
+        {denied && (
+          <div className="glass fade-in" style={{ marginTop: '1.5rem', padding: '1.35rem 1.5rem', borderLeft: '3px solid var(--danger)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Lock size={17} color="var(--danger)" />
+              <h3 style={{ margin: 0, color: 'var(--ink)' }}>Access Restricted</h3>
+            </div>
+            <p style={{ margin: 0, color: 'var(--ink-2)', fontSize: '.88rem', maxWidth: '62ch' }}>
+              Your current role does not have permission to run this query. No SQL was
+              generated and nothing was read from the database.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.85rem' }}>
+              <Fact label="Current role" value={denied.role.title} />
+              <Fact label="Your permitted scope" value={denied.role.scope.label} />
+              <Fact label="This query requires" value={denied.requested.scopeLabel} />
+            </div>
+
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.66rem', letterSpacing: '.1em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: '.5rem' }}>
+                Why was this query blocked?
+              </div>
+              {denied.reasons.map((r, i) => (
+                <div key={i} style={{ display: 'flex', gap: '8px', padding: '.25rem 0', fontSize: '.84rem', color: 'var(--ink-2)' }}>
+                  <span style={{ color: 'var(--danger)' }}>&bull;</span> {r}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={() => setAccessPanelOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldCheck size={14} /> Switch role
+              </button>
+              <span style={{ fontSize: '.75rem', color: 'var(--ink-3)' }}>
+                Ask within {denied.role.scope.label.toLowerCase()} to continue.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {authorized && !loading && (
+          <div className="fade-in" style={{ marginTop: '1.25rem', display: 'flex', alignItems: 'center', gap: '9px', fontSize: '.79rem', color: 'var(--success)' }}>
+            <CheckCircle2 size={14} />
+            <span style={{ fontWeight: 600 }}>Authorized</span>
+            <span style={{ color: 'var(--ink-3)' }}>
+              Role: {authorized.role.title} &middot; Access scope: {authorized.role.scope.label}
+            </span>
+          </div>
+        )}
+
         {loading && (
-          <div className="fade-in" style={{ marginTop: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', color: '#8892b0', fontSize: '0.85rem' }}>
-            <Clock size={14} className="mic-pulse" />
-            <span>Running on-premise model — retrieving schema, planning, generating and validating SQL…</span>
+          <div className="glass fade-in" style={{ marginTop: '1.5rem', padding: '1.1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div className="spinner" />
+              <span style={{ color: 'var(--ink)', fontSize: '0.88rem', fontWeight: 600 }}>
+                {steps.find((s2) => s2.status === 'start')?.stage || 'Working'}
+              </span>
+              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--ink-3)' }}>
+                {elapsedSec.toFixed(1)}s
+              </span>
+            </div>
+
+            <div className={`progress${progressPct === 0 ? ' indeterminate' : ''}`}>
+              <i style={progressPct === 0 ? undefined : { width: `${Math.min(97, progressPct)}%` }} />
+            </div>
+
+            <div className="steps">
+              {steps.map((s2, i) => (
+                <span key={i} className={`step ${s2.status === 'start' ? 'active' : s2.status === 'error' ? 'failed' : 'done'}`}>
+                  <i className="dot" />
+                  {s2.stage}
+                  {s2.detail && <span style={{ opacity: 0.7 }}>· {s2.detail}</span>}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
         {summary && (
-          <div className="fade-in glass" style={{ marginTop: '1.5rem', padding: '1.25rem', borderLeft: '3px solid #64ffda' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#64ffda', fontSize: '0.8rem' }}>
+          <div className="fade-in glass" style={{ marginTop: '1.5rem', padding: '1.25rem', borderLeft: '3px solid var(--accent)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--accent)', fontSize: '0.8rem' }}>
               <CheckCircle2 size={14} /> Executive Summary
             </div>
-            <p style={{ color: '#e6f1ff', lineHeight: 1.6, margin: 0 }}>{summary}</p>
+            <p style={{ color: 'var(--ink)', lineHeight: 1.6, margin: 0 }}>{summary}</p>
             {filters.length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {filters.map((f, i) => (
-                  <span key={i} style={{ fontSize: '0.7rem', color: '#8892b0', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 10px' }}>{f}</span>
+                  <span key={i} style={{ fontSize: '0.7rem', color: 'var(--ink-3)', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 10px' }}>{f}</span>
                 ))}
               </div>
             )}
@@ -344,21 +489,21 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
         )}
 
         {truncated && (
-          <div className="fade-in" style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '5px', color: '#f59e0b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="fade-in" style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--warn-weak)', border: '1px solid rgba(217,154,69,0.35)', borderRadius: '5px', color: 'var(--warn)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={14} />
             <span>Showing the first {rowCount?.toLocaleString('en-IN')} rows — the full result set is larger. Narrow the question for a complete answer.</span>
           </div>
         )}
 
         {diagnosis && diagnosis.length > 0 && (
-          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid #f59e0b' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#f59e0b', fontSize: '0.8rem' }}>
+          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid var(--warn)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: 'var(--warn)', fontSize: '0.8rem' }}>
               <AlertTriangle size={14} /> Why this returned nothing
             </div>
             {diagnosis.map((d: any, i: number) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '6px 0', borderBottom: i < diagnosis.length - 1 ? '1px solid var(--border)' : 'none', fontSize: '0.85rem' }}>
-                <span style={{ color: '#e6f1ff' }}>{d.condition}</span>
-                <span style={{ color: d.matchCount === 0 ? '#ef4444' : '#10b981', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                <span style={{ color: 'var(--ink)' }}>{d.condition}</span>
+                <span style={{ color: d.matchCount === 0 ? 'var(--danger)' : 'var(--success)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                   {d.matchCount === null ? 'n/a' : `${d.matchCount.toLocaleString('en-IN')} rows`}
                 </span>
               </div>
@@ -367,12 +512,12 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
         )}
 
         {clarifications && clarifications.length > 0 && (
-          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid #64ffda' }}>
-            <div style={{ marginBottom: '10px', color: '#64ffda', fontSize: '0.8rem' }}>Which did you mean?</div>
+          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid var(--accent)' }}>
+            <div style={{ marginBottom: '10px', color: 'var(--accent)', fontSize: '0.8rem' }}>Which did you mean?</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {clarifications.map((c: any, i: number) => (
                 <button key={i} onClick={() => { setPrompt(`${prompt} (${c.label})`); setClarifications(null); }}
-                  style={{ background: 'rgba(100,255,218,0.1)', border: '1px solid rgba(100,255,218,0.3)', color: '#64ffda', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+                  style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-line)', color: 'var(--accent)', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
                   {c.label}
                 </button>
               ))}
@@ -382,14 +527,14 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
 
         {stages.length > 0 && (
           <div className="fade-in" style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.7rem', color: '#8892b0', display: 'flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> Pipeline</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> Pipeline</span>
             {stages.map((st: any, i: number) => (
-              <span key={i} title={st.details || ''} style={{ fontSize: '0.68rem', color: st.status === 'success' ? '#10b981' : '#ef4444', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+              <span key={i} title={st.details || ''} style={{ fontSize: '0.68rem', color: st.status === 'success' ? 'var(--success)' : 'var(--danger)', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
                 {st.name} {st.durationMs}ms
               </span>
             ))}
             {elapsedMs !== null && (
-              <span style={{ fontSize: '0.68rem', color: '#8892b0', marginLeft: 'auto' }}>total {(elapsedMs / 1000).toFixed(1)}s</span>
+              <span style={{ fontSize: '0.68rem', color: 'var(--ink-3)', marginLeft: 'auto' }}>total {(elapsedMs / 1000).toFixed(1)}s</span>
             )}
           </div>
         )}
@@ -398,19 +543,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
           <div className="fade-in" style={{ marginTop: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
               <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.8rem', color: '#64ffda', display: 'flex', alignItems: 'center', gap: '5px' }}><Terminal size={14} /> Suggested Action</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '5px' }}><Terminal size={14} /> Suggested Action</span>
                 {mermaidChart && includeVisualStrategy && (
                   <button 
                     onClick={() => setShowFlow(!showFlow)}
-                    style={{ background: 'rgba(100,255,218,0.1)', border: '1px solid rgba(100,255,218,0.3)', color: '#64ffda', padding: '0.3rem 0.6rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-line)', color: 'var(--accent)', padding: '0.3rem 0.6rem', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '5px' }}
                   >
                     <Network size={12} /> {showFlow ? 'Hide Flow' : 'Show Flow'}
                   </button>
                 )}
               </div>
-              <button onClick={handleExecute} style={{ background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', gap: '5px' }}><Play size={16} fill="white" /> Run</button>
+              <button onClick={() => setConsoleOpen(true)} title="Open this SQL in the console (⌘K)"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', padding: '0.35rem 0.75rem', background: 'var(--accent-weak)', border: '1px solid var(--accent-line)', color: 'var(--accent)' }}>
+                <Terminal size={13} /> Verify in SQL Console
+              </button>
             </div>
-            <pre style={{ background: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '5px', color: '#64ffda', fontFamily: 'monospace', fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{sql}</pre>
+            <pre style={{ background: 'var(--surface-2)', padding: '1rem', borderRadius: '5px', color: 'var(--accent)', fontFamily: 'monospace', fontSize: '0.9rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{sql}</pre>
             
             {mermaidChart && includeVisualStrategy && showFlow && <QueryFlow chart={mermaidChart} />}
           </div>
@@ -436,18 +584,87 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
       ) : externalConnected && cards.length > 0 ? (
         <div className="fade-in">
           <h2 style={{ marginBottom: '1.5rem' }}>Environment Metadata</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>{cards.map((card, i) => <StatCard key={i} {...card} />)}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>{cards.map((card, i) => <StatCard key={i} {...card} onOpen={openTable} />)}</div>
         </div>
       ) : <div className="glass" style={{ padding: '4rem', textAlign: 'center' }}><DatabaseIcon size={64} style={{ marginBottom: '1rem', opacity: 0.2 }} /><h3>No Environment Selected</h3><p>Please select a database environment above to view performance metrics.</p></div>}
-      <ConnectionModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={loadConfigs} />
+
+      <SqlConsole open={consoleOpen} onClose={() => setConsoleOpen(false)} initialSql={sql} />
+      <AccessControlPanel open={accessPanelOpen} onClose={() => setAccessPanelOpen(false)} roleId={roleId} onRoleChange={changeRole} />
+
+      {peekTable && (
+        <div
+          onClick={() => setPeekTable(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(6,8,12,0.74)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}
+        >
+          <div className="glass fade-in" onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(1100px, 100%)', maxHeight: '80vh', display: 'flex', flexDirection: 'column', padding: '1.25rem', background: 'var(--surface)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Table2 size={16} color="var(--accent)" />
+                <h3 style={{ margin: 0, color: 'var(--ink)' }}>{peekTable}</h3>
+                {!peekLoading && !peekError && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--ink-3)' }}>first {peekRows.length} rows from Neon Postgres</span>
+                )}
+              </div>
+              <button onClick={() => setPeekTable(null)} style={{ background: 'transparent', border: 'none', color: 'var(--ink-3)', padding: '4px' }} title="Close (Esc)">
+                <X size={18} />
+              </button>
+            </div>
+
+            {peekLoading && <div style={{ color: 'var(--ink-3)', padding: '2rem', textAlign: 'center' }}>Loading rows…</div>}
+            {peekError && <div style={{ color: 'var(--danger)', padding: '1rem' }}>{peekError}</div>}
+
+            {!peekLoading && !peekError && peekRows.length > 0 && (
+              <div className="table-container" style={{ overflow: 'auto', flex: 1 }}>
+                <table>
+                  <thead><tr>{Object.keys(peekRows[0]).map((k) => <th key={k}>{k}</th>)}</tr></thead>
+                  <tbody>
+                    {peekRows.map((row, i) => (
+                      <tr key={i}>{Object.values(row).map((v: any, j) => <td key={j}>{v === null ? 'NULL' : String(v)}</td>)}</tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!peekLoading && !peekError && peekRows.length === 0 && (
+              <div style={{ color: 'var(--ink-3)', padding: '2rem', textAlign: 'center' }}>This table has no rows.</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-const StatCard = ({ title, value, icon, trend, positive }: StatCardProps) => (
-  <div className="glass" style={{ padding: '1.5rem' }}>
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}><div style={{ color: '#64ffda' }}>{icon}</div><div style={{ fontSize: '0.8rem', color: positive ? '#10b981' : '#ef4444' }}>{trend}</div></div>
-    <div style={{ fontSize: '0.8rem', color: '#text-dim' }}>{title}</div><div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#e6f1ff' }}>{value}</div>
+const Fact = ({ label, value }: { label: string; value: string }) => (
+  <div>
+    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '.64rem', letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--ink-3)', marginBottom: '.2rem' }}>{label}</div>
+    <div style={{ fontSize: '.86rem', color: 'var(--ink)', fontWeight: 500 }}>{value}</div>
+  </div>
+);
+
+const StatCard = ({ title, value, icon, trend, positive, table, onOpen }: StatCardProps & { onOpen?: (t?: string) => void }) => (
+  <div
+    className="glass"
+    style={{ padding: '1.5rem', cursor: table ? 'pointer' : 'default', position: 'relative' }}
+    onDoubleClick={() => onOpen?.(table)}
+    onKeyDown={(e) => { if (table && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpen?.(table); } }}
+    tabIndex={table ? 0 : -1}
+    role={table ? 'button' : undefined}
+    title={table ? `Double-click to view rows from ${table}` : undefined}
+  >
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+      <div style={{ color: 'var(--accent)' }}>{icon}</div>
+      <div style={{ fontSize: '0.8rem', color: positive ? 'var(--success)' : 'var(--danger)' }}>{trend}</div>
+    </div>
+    <div style={{ fontSize: '0.8rem', color: 'var(--ink-3)' }}>{title}</div>
+    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--ink)' }}>{value}</div>
+    {table && (
+      <div style={{ marginTop: '.5rem', fontSize: '0.68rem', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <Table2 size={11} /> double-click to view rows
+      </div>
+    )}
   </div>
 );
 
