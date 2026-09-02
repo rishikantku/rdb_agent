@@ -15,4 +15,4 @@ import { MockPermissionService } from './MockPermissionService';
 export const permissionService: PermissionService = new MockPermissionService();
 
 export * from './types';
-export { ROLES, ROLE_ORDER } from './roles';
+export { ROLES, ROLE_ORDER, DEMO_AREAS } from './roles';

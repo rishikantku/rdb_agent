@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, Cpu, Database, RefreshCw, AlertTriangle, Server } from 'lucide-react';
+import RolePermissionsPreview from './RolePermissionsPreview';
 
 /**
  * Inference is served by the self-hosted model configured in .env — there is no
@@ -72,6 +73,8 @@ const Settings = () => {
           the bank's own data centre with no third-party API calls.
         </p>
       </div>
+
+      <RolePermissionsPreview />
     </div>
   );
 };

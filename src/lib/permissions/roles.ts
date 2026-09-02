@@ -149,3 +149,15 @@ export const AREA_ALIASES: { match: string[]; canonical: string; level: 'state' 
   { match: ['jamshedpur zone', 'jamshedpur'], canonical: 'Jamshedpur Zone', level: 'zone' },
   { match: ['br0001', 'branch br0001'], canonical: 'Branch BR0001', level: 'branch' },
 ];
+
+/**
+ * Real areas from the demonstration database, grouped for the role-permission
+ * preview in Settings.
+ */
+export const DEMO_AREAS: Record<string, string[]> = {
+  enterprise: ['All regions, zones and branches'],
+  state: ['Jharkhand', 'Bihar'],
+  region: ['Jharkhand Region', 'Bihar Region', 'Eastern Region', 'Central Region'],
+  zone: ['Ranchi Zone', 'Bokaro Zone', 'Dhanbad Zone', 'Hazaribagh Zone', 'Jamshedpur Zone'],
+  branch: ['Branch BR0001', 'Branch BR0008', 'Branch BR0015', 'Branch BR0022', 'Branch BR0027'],
+};
