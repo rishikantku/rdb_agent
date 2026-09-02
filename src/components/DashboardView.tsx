@@ -2,16 +2,19 @@ import React, { useState, useMemo } from 'react';
 import {
   Users, Landmark, CreditCard, Activity, Box, Layers,
   TrendingUp, Building2, UserCheck, BarChart3, ShieldCheck, ArrowRight,
+  Star,
 } from 'lucide-react';
 import { Kpi } from './ui';
 import type { RoleId } from '../lib/permissions';
 import { permissionService } from '../lib/permissions';
+import type { SavedQuery } from './SavedQueriesView';
 
 interface DashboardViewProps {
   roleId: RoleId;
   aiReady: boolean;
   aiModel: string;
   cachedSchema: { tables: any[]; views: any[] } | null;
+  savedQueries?: SavedQuery[];
   onAskQuestion: (question: string) => void;
   onNavigateToAsk: () => void;
 }
@@ -37,11 +40,13 @@ const DashboardView: React.FC<DashboardViewProps> = ({
   aiReady,
   aiModel,
   cachedSchema,
+  savedQueries = [],
   onAskQuestion,
   onNavigateToAsk,
 }) => {
   const [prompt, setPrompt] = useState('');
   const role = permissionService.getRole(roleId);
+  const pinned = (savedQueries || []).filter(q => q.isPinned);
 
   const cards = useMemo<StatCard[]>(() => {
     if (!cachedSchema) return [];
@@ -122,6 +127,36 @@ const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Pinned & Favorite Queries */}
+      {pinned.length > 0 && (
+        <div style={{ marginTop: 12, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+            <Star size={14} fill="#F59E0B" color="#F59E0B" />
+            <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-3)', letterSpacing: '0.04em', textTransform: 'uppercase', margin: 0 }}>
+              Pinned Executive Queries
+            </h3>
+          </div>
+          <div className="grid g4">
+            {pinned.map((p) => (
+              <button
+                key={p.id}
+                className="card card-p card-hover"
+                onClick={() => onAskQuestion(p.question)}
+                style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, cursor: 'pointer', borderTop: '2px solid #F59E0B' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#D97706' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{p.name}</span>
+                  <Star size={13} fill="#F59E0B" />
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-4)', lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                  {p.question}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Suggested Questions */}
       <div style={{ marginTop: 8 }}>

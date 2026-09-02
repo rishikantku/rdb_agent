@@ -34,6 +34,37 @@ const NAV_ITEMS: { id: Tab; label: string; icon: React.ElementType; group?: stri
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
 
+const DEFAULT_SAVED_QUERIES: SavedQuery[] = [
+  {
+    id: 'pinned-1',
+    name: 'High Loan Growth Branches',
+    question: 'Which branches had the highest loan growth this financial year?',
+    savedAt: new Date(),
+    isPinned: true,
+  },
+  {
+    id: 'pinned-2',
+    name: 'NPA Monitoring',
+    question: 'What is the gross NPA ratio across all loan categories?',
+    savedAt: new Date(),
+    isPinned: true,
+  },
+  {
+    id: 'pinned-3',
+    name: 'Deposit Concentration',
+    question: 'List top 10 customers by total savings account balance',
+    savedAt: new Date(),
+    isPinned: true,
+  },
+  {
+    id: 'pinned-4',
+    name: 'Employee Productivity',
+    question: 'Average transactions processed per employee by branch in Jharkhand',
+    savedAt: new Date(),
+    isPinned: true,
+  },
+];
+
 const App = () => {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [roleId, setRoleId] = useState<RoleId>('DGM');
@@ -65,6 +96,17 @@ const App = () => {
         document.documentElement.setAttribute('data-theme', t);
       }
     }).catch(() => {});
+    // Restore saved & pinned queries
+    window.electronAPI.settingsGet('saved_queries').then((saved) => {
+      if (Array.isArray(saved) && saved.length > 0) {
+        setSavedQueries(saved.map((s: any) => ({ ...s, savedAt: new Date(s.savedAt) })));
+      } else {
+        setSavedQueries(DEFAULT_SAVED_QUERIES);
+        window.electronAPI.settingsSet('saved_queries', DEFAULT_SAVED_QUERIES).catch(() => {});
+      }
+    }).catch(() => {
+      setSavedQueries(DEFAULT_SAVED_QUERIES);
+    });
   }, []);
 
   const checkEngine = async () => {
@@ -120,8 +162,56 @@ const App = () => {
   };
 
   // Saved queries
+  const handleToggleSaveQuery = (question: string, name?: string) => {
+    const trimmed = question.trim();
+    if (!trimmed) return;
+    const existing = savedQueries.find((q) => q.question.toLowerCase() === trimmed.toLowerCase());
+    if (existing) {
+      const updated = savedQueries.filter((q) => q.id !== existing.id);
+      setSavedQueries(updated);
+      window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+      showToast('Query removed from pinned queries', 'info');
+    } else {
+      const newQuery: SavedQuery = {
+        id: String(Date.now()),
+        name: name || (trimmed.length > 36 ? trimmed.slice(0, 36) + '...' : trimmed),
+        question: trimmed,
+        savedAt: new Date(),
+        isPinned: true,
+      };
+      const updated = [newQuery, ...savedQueries];
+      setSavedQueries(updated);
+      window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+      showToast('Query pinned to favorites', 'success');
+    }
+  };
+
+  const handleTogglePinQuery = (id: string) => {
+    const updated = savedQueries.map((q) => q.id === id ? { ...q, isPinned: !q.isPinned } : q);
+    setSavedQueries(updated);
+    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    showToast('Pin status updated', 'info');
+  };
+
+  const handleAddSavedQuery = (name: string, question: string) => {
+    const newQuery: SavedQuery = {
+      id: String(Date.now()),
+      name,
+      question: question.trim(),
+      savedAt: new Date(),
+      isPinned: true,
+    };
+    const updated = [newQuery, ...savedQueries];
+    setSavedQueries(updated);
+    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    showToast('Query saved and pinned', 'success');
+  };
+
   const handleDeleteSaved = (id: string) => {
-    setSavedQueries((prev) => prev.filter((q) => q.id !== id));
+    const updated = savedQueries.filter((q) => q.id !== id);
+    setSavedQueries(updated);
+    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    showToast('Saved query deleted', 'info');
   };
 
   const handleRunSaved = (question: string) => {
@@ -221,6 +311,7 @@ const App = () => {
               aiReady={aiReady}
               aiModel={aiModel}
               cachedSchema={cachedSchema}
+              savedQueries={savedQueries}
               onAskQuestion={handleAskFromDashboard}
               onNavigateToAsk={() => setActiveTab('ask')}
             />
@@ -232,6 +323,8 @@ const App = () => {
               aiReady={aiReady}
               aiModel={aiModel}
               initialQuestion={initialQuestion}
+              savedQueries={savedQueries}
+              onToggleSaveQuery={handleToggleSaveQuery}
               onClearInitial={() => setInitialQuestion(undefined)}
               onOpenAccessPanel={() => setAccessPanelOpen(true)}
             />
@@ -249,6 +342,8 @@ const App = () => {
               queries={savedQueries}
               onRun={handleRunSaved}
               onDelete={handleDeleteSaved}
+              onTogglePin={handleTogglePinQuery}
+              onAddQuery={handleAddSavedQuery}
             />
           )}
 

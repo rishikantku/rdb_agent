@@ -3,6 +3,7 @@ import {
   Search, Mic, MicOff, ShieldCheck, CheckCircle2, AlertTriangle,
   Lock, Terminal, Network, Copy, ArrowRight, ChevronRight,
   Download, FileSpreadsheet, FileText, ShieldAlert, HelpCircle, Play,
+  Star, Bookmark, Pin,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -15,6 +16,7 @@ import { DataTable, Kpi, Sql, Disclosure, showToast, compact } from './ui';
 import QueryFlow from './QueryFlow';
 import SqlConsole from './SqlConsole';
 import GuardrailTestModal from './GuardrailTestModal';
+import type { SavedQuery } from './SavedQueriesView';
 
 interface AskDataViewProps {
   roleId: RoleId;
@@ -24,6 +26,8 @@ interface AskDataViewProps {
   initialQuestion?: string;
   onClearInitial?: () => void;
   onOpenAccessPanel: () => void;
+  savedQueries?: SavedQuery[];
+  onToggleSaveQuery?: (question: string, name?: string) => void;
 }
 
 const AskDataView: React.FC<AskDataViewProps> = ({
@@ -33,6 +37,8 @@ const AskDataView: React.FC<AskDataViewProps> = ({
   initialQuestion,
   onClearInitial,
   onOpenAccessPanel,
+  savedQueries = [],
+  onToggleSaveQuery,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [sql, setSql] = useState('');
@@ -392,7 +398,21 @@ const AskDataView: React.FC<AskDataViewProps> = ({
 
         {/* Submit row */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 }}>
-          <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>⌘/Ctrl + Enter to submit</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>⌘/Ctrl + Enter to submit</span>
+            {prompt.trim() && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => onToggleSaveQuery?.(prompt)}
+                style={{ padding: '3px 8px', fontSize: 12, color: (savedQueries || []).some(q => q.question.toLowerCase() === prompt.trim().toLowerCase()) ? '#D97706' : 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                title={(savedQueries || []).some(q => q.question.toLowerCase() === prompt.trim().toLowerCase()) ? 'Unpin query' : 'Pin this query to favorites'}
+              >
+                <Star size={13} fill={(savedQueries || []).some(q => q.question.toLowerCase() === prompt.trim().toLowerCase()) ? '#F59E0B' : 'none'} color={(savedQueries || []).some(q => q.question.toLowerCase() === prompt.trim().toLowerCase()) ? '#F59E0B' : 'currentColor'} />
+                <span>{(savedQueries || []).some(q => q.question.toLowerCase() === prompt.trim().toLowerCase()) ? 'Pinned' : 'Pin'}</span>
+              </button>
+            )}
+          </div>
           <button
             className="query-submit"
             onClick={() => handleAsk()}
@@ -411,6 +431,33 @@ const AskDataView: React.FC<AskDataViewProps> = ({
             )}
           </button>
         </div>
+
+        {/* Pinned / Favorite Queries Quick Shelf */}
+        {(savedQueries || []).filter(q => q.isPinned).length > 0 && (
+          <div className="pinned-queries-shelf">
+            <div className="pinned-label">
+              <Star size={12} fill="#F59E0B" color="#F59E0B" />
+              <span>Pinned:</span>
+            </div>
+            <div className="pinned-chips">
+              {(savedQueries || []).filter(q => q.isPinned).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="pinned-chip"
+                  onClick={() => {
+                    setPrompt(p.question);
+                    handleAsk(p.question);
+                  }}
+                  title={p.question}
+                >
+                  <Pin size={11} style={{ transform: 'rotate(45deg)', opacity: 0.7 }} />
+                  <span>{p.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ===== Loading State ===== */}
@@ -722,7 +769,16 @@ const AskDataView: React.FC<AskDataViewProps> = ({
         <div className="fade" style={{ marginTop: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h3 style={{ fontSize: 16 }}>Results ({results.length.toLocaleString('en-IN')})</h3>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => onToggleSaveQuery?.(askedQuestion)}
+                style={{ color: (savedQueries || []).some(q => q.question.toLowerCase() === askedQuestion.trim().toLowerCase()) ? '#D97706' : undefined, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                title={(savedQueries || []).some(q => q.question.toLowerCase() === askedQuestion.trim().toLowerCase()) ? 'Remove from pinned queries' : 'Pin this query for quick reuse'}
+              >
+                <Star size={14} fill={(savedQueries || []).some(q => q.question.toLowerCase() === askedQuestion.trim().toLowerCase()) ? '#F59E0B' : 'none'} color={(savedQueries || []).some(q => q.question.toLowerCase() === askedQuestion.trim().toLowerCase()) ? '#F59E0B' : 'currentColor'} />
+                <span>{(savedQueries || []).some(q => q.question.toLowerCase() === askedQuestion.trim().toLowerCase()) ? 'Pinned' : 'Pin Query'}</span>
+              </button>
               <button className="btn btn-ghost btn-sm" onClick={exportToXLSX}>
                 <FileSpreadsheet size={14} /> Excel
               </button>
