@@ -162,6 +162,31 @@ const AskDataView: React.FC<AskDataViewProps> = ({
     setLoading(true); resetResponse();
     setAskedQuestion(q.trim());
     try {
+      // ----------------------------------------------------------------------
+      // Step 0: Direct SQL Execution Support
+      // If the user pastes raw SQL (SELECT, WITH, EXPLAIN), run through SQLGuardian
+      // and execute directly rather than re-prompting the LLM.
+      // ----------------------------------------------------------------------
+      const isDirectSql = /^\s*(SELECT|WITH|EXPLAIN|SHOW)\b/i.test(q.trim());
+      if (isDirectSql) {
+        const sqlRes = await window.electronAPI.sqlRun(q.trim());
+        if (sqlRes.success) {
+          setResults(sqlRes.data || []);
+          setRowCount(sqlRes.rowCount ?? (sqlRes.data?.length ?? 0));
+          setSql(q.trim());
+          setSummary(`Direct SQL query executed successfully. Returned ${sqlRes.rowCount ?? (sqlRes.data?.length ?? 0)} rows in ${sqlRes.elapsedMs ?? 0}ms.`);
+          if (sqlRes.rowCount === 0) {
+            setDiagnosis([{ condition: 'Direct query returned 0 rows from the database with current filter criteria', matchCount: 0 }]);
+          }
+          setLoading(false);
+          return;
+        } else {
+          setError(sqlRes.error || 'SQL execution failed.');
+          setLoading(false);
+          return;
+        }
+      }
+
       if (!aiReady) throw new Error('The analysis engine is not reachable.');
 
       // ----------------------------------------------------------------------
