@@ -2,16 +2,19 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, Mic, MicOff, ShieldCheck, CheckCircle2, AlertTriangle,
   Lock, Terminal, Network, Copy, ArrowRight, ChevronRight,
-  Download, FileSpreadsheet, FileText,
+  Download, FileSpreadsheet, FileText, ShieldAlert, HelpCircle, Play,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { permissionService } from '../lib/permissions';
 import type { AuthorizationDecision, RoleId } from '../lib/permissions';
+import { queryGuardrail } from '../lib/guardrail';
+import type { GuardrailDecision, ConversationHistoryItem } from '../lib/guardrail';
 import { DataTable, Kpi, Sql, Disclosure, showToast, compact } from './ui';
 import QueryFlow from './QueryFlow';
 import SqlConsole from './SqlConsole';
+import GuardrailTestModal from './GuardrailTestModal';
 
 interface AskDataViewProps {
   roleId: RoleId;
@@ -49,6 +52,9 @@ const AskDataView: React.FC<AskDataViewProps> = ({
   const [rowCount, setRowCount] = useState<number | null>(null);
   const [denied, setDenied] = useState<AuthorizationDecision | null>(null);
   const [authorized, setAuthorized] = useState<AuthorizationDecision | null>(null);
+  const [scopeBlocked, setScopeBlocked] = useState<GuardrailDecision | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<ConversationHistoryItem[]>([]);
+  const [guardrailModalOpen, setGuardrailModalOpen] = useState(false);
   const [steps, setSteps] = useState<{ stage: string; status: string; detail?: string }[]>([]);
   const [progressPct, setProgressPct] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -147,7 +153,7 @@ const AskDataView: React.FC<AskDataViewProps> = ({
     setSummary(''); setFilters([]); setTruncated(false); setDiagnosis(null);
     setStages([]); setClarifications(null); setElapsedMs(null); setRowCount(null);
     setSteps([]); setProgressPct(0); setElapsedSec(0);
-    setDenied(null); setAuthorized(null);
+    setDenied(null); setAuthorized(null); setScopeBlocked(null);
   };
 
   const handleAsk = async (overridePrompt?: string) => {
@@ -158,6 +164,28 @@ const AskDataView: React.FC<AskDataViewProps> = ({
     try {
       if (!aiReady) throw new Error('The analysis engine is not reachable.');
 
+      // ----------------------------------------------------------------------
+      // Step 1: Query Scope Guardrail & Governance Layer
+      // ----------------------------------------------------------------------
+      const guardDecision = queryGuardrail.classify(q, conversationHistory);
+      if (!guardDecision.allowed) {
+        if (guardDecision.classification === 'AMBIGUOUS') {
+          setClarifications(guardDecision.clarificationOptions?.map((o) => ({
+            label: o.label,
+            description: o.description || o.prompt,
+            value: o.prompt,
+          })) || []);
+          setError(guardDecision.message);
+        } else {
+          setScopeBlocked(guardDecision);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // ----------------------------------------------------------------------
+      // Step 2: Role Authorization & Scope Access Control
+      // ----------------------------------------------------------------------
       const decision = await permissionService.authorize({ question: q, roleId });
       if (!decision.allowed) {
         setDenied(decision);
@@ -166,19 +194,55 @@ const AskDataView: React.FC<AskDataViewProps> = ({
       }
       setAuthorized(decision);
 
+      // ----------------------------------------------------------------------
+      // Step 3: Full AI Query Pipeline (Semantic Layer → LLM → SQL Guardian → DB)
+      // ----------------------------------------------------------------------
       const res = await window.electronAPI.aiQuery(q, 'demo-session');
 
       if (res?.sql) setSql(res.sql);
       if (res?.debug?.pipelineStages) setStages(res.debug.pipelineStages);
       if (typeof res?.executionTimeMs === 'number') setElapsedMs(res.executionTimeMs);
 
-      if (res?.success) {
+      if (res?.scopeBlocked && res?.guardrail) {
+        // Backend defense-in-depth guardrail triggered
+        setScopeBlocked({
+          allowed: false,
+          classification: res.guardrail.classification as any,
+          confidence: res.guardrail.confidence,
+          headline: res.guardrail.headline,
+          message: res.error || 'Request blocked by scope policy.',
+          reasons: res.guardrail.reasons,
+          suggestedQuery: res.guardrail.suggestedQuery,
+          contract: {
+            scope: 'NON_BANK',
+            classification: res.guardrail.classification as any,
+            confidence: res.guardrail.confidence,
+            entities: [],
+            metrics: [],
+            requires_database: false,
+            requires_sql: false,
+            reasons: res.guardrail.reasons,
+          },
+        });
+      } else if (res?.success) {
         setResults(res.data || []);
         setRowCount(res.rowCount ?? (res.data?.length ?? 0));
         setSummary(res.summary || '');
         setFilters(res.filtersApplied || []);
         setTruncated(!!res.truncated);
         setDiagnosis(res.emptyResultDiagnosis || null);
+
+        // Record successful in-scope query into session history for follow-up resolution
+        setConversationHistory((prev) => [
+          ...prev,
+          {
+            question: q,
+            classification: 'IN_SCOPE',
+            domain: guardDecision.contract.domain,
+            entities: guardDecision.contract.entities,
+            timestamp: Date.now(),
+          },
+        ]);
       } else if (res?.errorType === 'ambiguity') {
         setClarifications(res.clarificationOptions || []);
         setError(res.error || 'That question is ambiguous.');
@@ -252,14 +316,32 @@ const AskDataView: React.FC<AskDataViewProps> = ({
 
       {/* Query Input Card */}
       <div className="card" style={{ padding: '24px' }}>
-        {/* Role context */}
+        {/* Role & Guardrail context */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, padding: '8px 14px', borderRadius: 'var(--r-md)', background: 'var(--surface-2)', border: '1px solid var(--hairline)' }}>
           <span className="label" style={{ fontSize: 10.5 }}>Role</span>
           <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' }}>{currentRole.title}</span>
           <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>· {currentRole.scope.label}</span>
-          <span className={`badge ${currentRole.restrictions.length === 0 ? 'badge-ok' : 'badge-warn'}`} style={{ marginLeft: 'auto' }}>
-            {currentRole.restrictions.length === 0 ? 'Full Access' : 'Restricted'}
-          </span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+            {/* Subtle Scope Guard Active Indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-3)' }}>
+              <span className="dot dot-live" style={{ color: 'var(--ok)', width: 6, height: 6 }} />
+              <span style={{ fontWeight: 500 }}>RDB Scope Guard Active</span>
+            </div>
+
+            <button
+              className="btn btn-quiet btn-sm"
+              style={{ fontSize: 11.5, padding: '2px 8px', color: 'var(--ink-4)', height: 24 }}
+              onClick={() => setGuardrailModalOpen(true)}
+              title="Evaluate 25 Standardized Guardrail Test Cases"
+            >
+              <ShieldCheck size={13} style={{ marginRight: 4 }} /> Test Suite
+            </button>
+
+            <span className={`badge ${currentRole.restrictions.length === 0 ? 'badge-ok' : 'badge-warn'}`}>
+              {currentRole.restrictions.length === 0 ? 'Full Access' : 'Restricted'}
+            </span>
+          </div>
         </div>
 
         {/* Input */}
@@ -339,6 +421,109 @@ const AskDataView: React.FC<AskDataViewProps> = ({
         </div>
       )}
 
+      {/* ===== Scope Blocked State (Guardrail Layer) ===== */}
+      {scopeBlocked && (
+        <div className="card fade" style={{ marginTop: 24, padding: '24px 28px', borderLeft: '4px solid var(--warn)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 'var(--r-md)',
+                background: scopeBlocked.classification === 'SECURITY_SENSITIVE' ? 'var(--danger-weak)' : 'var(--warn-weak)',
+                color: scopeBlocked.classification === 'SECURITY_SENSITIVE' ? 'var(--danger)' : 'var(--warn)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {scopeBlocked.classification === 'SECURITY_SENSITIVE' ? <ShieldAlert size={24} /> : <ShieldCheck size={24} />}
+            </div>
+
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                <h3 style={{ fontSize: 17, margin: 0 }}>RDB Agent Scope</h3>
+                <span className={`badge ${scopeBlocked.classification === 'SECURITY_SENSITIVE' ? 'badge-danger' : 'badge-warn'}`}>
+                  {scopeBlocked.classification}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--ink-4)', marginLeft: 'auto' }}>
+                  {Math.round(scopeBlocked.confidence * 100)}% confidence
+                </span>
+              </div>
+
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>
+                This request is outside the supported banking-data scope.
+              </div>
+
+              <p style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.6, margin: '0 0 16px 0' }}>
+                {scopeBlocked.message}
+              </p>
+
+              {/* Suggested query redirect */}
+              {scopeBlocked.suggestedQuery && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 14px',
+                    borderRadius: 'var(--r-md)',
+                    background: 'var(--surface-2)',
+                    marginBottom: 16,
+                    border: '1px solid var(--hairline)',
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Try asking:
+                  </span>
+                  <button
+                    className="btn btn-quiet btn-sm"
+                    style={{ color: 'var(--ink)', fontWeight: 500, padding: 0, textDecoration: 'underline' }}
+                    onClick={() => {
+                      const sq = scopeBlocked.suggestedQuery!;
+                      setScopeBlocked(null);
+                      setPrompt(sq);
+                      handleAsk(sq);
+                    }}
+                  >
+                    "{scopeBlocked.suggestedQuery}"
+                  </button>
+                  <ArrowRight size={13} color="var(--ink-4)" />
+                </div>
+              )}
+
+              {/* Expandable Why Was This Blocked Panel */}
+              <Disclosure title="Why was this blocked? (Governance Detail)">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 4 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 8, fontSize: 13 }}>
+                    <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>Category:</span>
+                    <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{scopeBlocked.classification}</span>
+
+                    <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>Governance Reason:</span>
+                    <span style={{ color: 'var(--ink-2)' }}>{scopeBlocked.reasons[0]}</span>
+
+                    <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>Pipeline Action:</span>
+                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Request blocked before SQL generation.</span>
+
+                    <span style={{ color: 'var(--ink-4)', fontWeight: 500 }}>Database Access:</span>
+                    <span style={{ color: 'var(--ok)', fontWeight: 600 }}>0 queries executed (Zero data leakage).</span>
+                  </div>
+
+                  {scopeBlocked.reasons.length > 1 && (
+                    <div style={{ marginTop: 4, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', fontSize: 12.5, color: 'var(--ink-3)' }}>
+                      {scopeBlocked.reasons.slice(1).map((r, i) => (
+                        <div key={i}>• {r}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Disclosure>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== Access Denied ===== */}
       {denied && (
         <div className="access-denied fade" style={{ marginTop: 24 }}>
@@ -398,7 +583,7 @@ const AskDataView: React.FC<AskDataViewProps> = ({
       )}
 
       {/* ===== Error ===== */}
-      {error && !denied && (
+      {error && !denied && !scopeBlocked && (
         <div className="card fade" style={{ marginTop: 16, padding: '18px 22px', borderLeft: '3px solid var(--danger)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--danger)', fontSize: 14, fontWeight: 600 }}>
             <AlertTriangle size={17} />
@@ -410,15 +595,34 @@ const AskDataView: React.FC<AskDataViewProps> = ({
       {/* ===== Clarification ===== */}
       {clarifications && clarifications.length > 0 && (
         <div className="card card-p fade" style={{ marginTop: 16, borderLeft: '3px solid var(--accent)' }}>
-          <div style={{ marginBottom: 12, color: 'var(--accent)', fontSize: 13, fontWeight: 600 }}>Which did you mean?</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: 'var(--accent)', fontSize: 13, fontWeight: 600 }}>
+            <HelpCircle size={16} />
+            <span>Which metric would you like to explore?</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
             {clarifications.map((c: any, i: number) => (
               <button
                 key={i}
-                className="btn btn-ghost btn-sm"
-                onClick={() => { setPrompt(`${prompt} (${c.label})`); setClarifications(null); }}
+                className="btn btn-ghost"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  padding: '10px 14px',
+                  textAlign: 'left',
+                  height: 'auto',
+                }}
+                onClick={() => {
+                  const nextPrompt = c.prompt || c.value || `${prompt} (${c.label})`;
+                  setPrompt(nextPrompt);
+                  setClarifications(null);
+                  handleAsk(nextPrompt);
+                }}
               >
-                {c.label}
+                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{c.label}</span>
+                {c.description && (
+                  <span style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{c.description}</span>
+                )}
               </button>
             ))}
           </div>
@@ -577,6 +781,16 @@ const AskDataView: React.FC<AskDataViewProps> = ({
 
       {/* SQL Console Modal */}
       <SqlConsole open={consoleOpen} onClose={() => setConsoleOpen(false)} initialSql={sql} />
+
+      {/* Guardrail Test Suite Modal */}
+      <GuardrailTestModal
+        open={guardrailModalOpen}
+        onClose={() => setGuardrailModalOpen(false)}
+        onTryQuestion={(q) => {
+          setPrompt(q);
+          handleAsk(q);
+        }}
+      />
     </div>
   );
 };

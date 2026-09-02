@@ -9,7 +9,8 @@
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint .",
     "preview": "vite preview",
-    "seed": "tsx src/backend/db/seed.ts"
+    "seed": "tsx src/backend/db/seed.ts",
+    "test:guardrail": "tsx scripts/test-guardrail.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

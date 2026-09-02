@@ -51,6 +51,14 @@ export interface AIQueryResponse {
   sql?: string;
   error?: string;
   errorType?: 'ambiguity' | 'validation' | 'execution' | 'llm' | 'system';
+  scopeBlocked?: boolean;
+  guardrail?: {
+    classification: string;
+    confidence: number;
+    headline: string;
+    reasons: string[];
+    suggestedQuery?: string;
+  };
   clarificationOptions?: Array<{ label: string; description: string; value: string }>;
   debug?: {
     model?: string;

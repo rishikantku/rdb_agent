@@ -20,6 +20,7 @@ import PermissionsView from './components/PermissionsView';
 import SchemaExplorer from './components/SchemaExplorer';
 import Settings from './components/Settings';
 import AccessControlPanel from './components/AccessControlPanel';
+import GuardrailTestModal from './components/GuardrailTestModal';
 
 type Tab = 'dashboard' | 'ask' | 'history' | 'saved' | 'permissions' | 'explorer' | 'settings';
 
@@ -45,6 +46,7 @@ const App = () => {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
   const [cachedSchema, setCachedSchema] = useState<{ tables: any[]; views: any[] } | null>(null);
+  const [guardrailModalOpen, setGuardrailModalOpen] = useState(false);
 
   const currentRole = permissionService.getRole(roleId);
 
@@ -147,13 +149,22 @@ const App = () => {
               <StatusDot tone={dbConnected ? 'ok' : 'danger'} live={dbConnected} />
               <span>{dbConnected ? 'Database Connected' : 'Disconnected'}</span>
             </div>
-            <div className="status-item">
-              <StatusDot tone="ok" />
-              <span>SQL Guardian Active</span>
+            <div
+              className="status-item"
+              onClick={() => setGuardrailModalOpen(true)}
+              style={{ cursor: 'pointer' }}
+              title="Click to inspect AI Guardrail & Governance evaluation suite (25 test cases)"
+            >
+              <StatusDot tone="ok" live={true} />
+              <span style={{ textDecoration: 'underline', textDecorationStyle: 'dotted' }}>RDB Scope Guard Active</span>
             </div>
             <div className="status-item">
               <StatusDot tone="ok" />
               <span>Authorization Active</span>
+            </div>
+            <div className="status-item">
+              <StatusDot tone="ok" />
+              <span>SQL Guardian Active</span>
             </div>
           </div>
         </div>
@@ -265,6 +276,12 @@ const App = () => {
         onClose={() => setAccessPanelOpen(false)}
         roleId={roleId}
         onRoleChange={changeRole}
+      />
+
+      <GuardrailTestModal
+        open={guardrailModalOpen}
+        onClose={() => setGuardrailModalOpen(false)}
+        onTryQuestion={(q) => handleAskFromDashboard(q)}
       />
 
       <ToastContainer />

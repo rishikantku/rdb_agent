@@ -42,6 +42,8 @@ import type {
   AuditEntry,
 } from '../audit/audit-logger.js';
 import { randomUUID } from 'crypto';
+import { queryGuardrail } from '../../lib/guardrail/index.js';
+import type { GuardrailDecision } from '../../lib/guardrail/index.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,6 +86,15 @@ export interface QueryResponse {
   sqlPlan?: SQLPlan;
   // Validation info
   validationResult?: ValidationResult;
+  // Guardrail info
+  scopeBlocked?: boolean;
+  guardrail?: {
+    classification: string;
+    confidence: number;
+    headline: string;
+    reasons: string[];
+    suggestedQuery?: string;
+  };
   // Error handling
   error?: string;
   errorType?: 'ambiguity' | 'validation' | 'execution' | 'llm' | 'system';
@@ -220,8 +231,8 @@ export class QueryOrchestrator {
   async processQuery(request: QueryRequest, onProgress?: ProgressFn): Promise<QueryResponse> {
     const requestId = `req_${randomUUID().replace(/-/g, '').substring(0, 16)}`;
 
-    // Six nominal stages; repairs are reported against the stage they repair
-    const TOTAL_STAGES = 6;
+    // Seven nominal stages; repairs are reported against the stage they repair
+    const TOTAL_STAGES = 7;
     const emit = (stage: string, status: 'start' | 'done' | 'error' | 'skipped', index: number, detail?: string) => {
       try {
         onProgress?.({ stage, status, detail, index, total: TOTAL_STAGES });
@@ -236,12 +247,96 @@ export class QueryOrchestrator {
 
     try {
       // -------------------------------------------------------------------
+      // Stage 0: Query Scope Guardrail & Intent Policy
+      // -------------------------------------------------------------------
+      const guardStart = performance.now();
+      emit('Checking query scope', 'start', 1);
+
+      const conversationContext = this.getConversationContext(request);
+      const historyForGuardrail = conversationContext.history.map((h) => ({
+        question: h.question,
+        classification: 'IN_SCOPE' as const,
+        timestamp: Date.now(),
+      }));
+
+      const guardDecision = queryGuardrail.classify(request.question, historyForGuardrail);
+      const guardDuration = Math.round(performance.now() - guardStart);
+
+      if (!guardDecision.allowed) {
+        emit('Checking query scope', 'error', 1, guardDecision.classification);
+        stages.push({
+          name: 'Query Scope Guardrail',
+          status: 'error',
+          durationMs: guardDuration,
+          details: `${guardDecision.classification} — ${guardDecision.headline}`,
+        });
+
+        // Audit log blocked request
+        this.auditLogger.log({
+          requestId,
+          userId: request.userId || 'anonymous',
+          timestamp: new Date().toISOString(),
+          userQuestion: request.question,
+          model: this.llm.getConfig().model,
+          retrievedTables: [],
+          retrievedBusinessRules: [],
+          generatedSql: '',
+          validationResult: 'scope_blocked',
+          executionStatus: 'blocked',
+          executionTimeMs: Math.round(performance.now() - pipelineStart),
+          rowCount: 0,
+          repairAttempts: 0,
+        });
+
+        return {
+          requestId,
+          success: false,
+          scopeBlocked: true,
+          error: guardDecision.message,
+          errorType: guardDecision.classification === 'AMBIGUOUS' ? 'ambiguity' : 'validation',
+          clarificationOptions: guardDecision.clarificationOptions?.map((o) => ({
+            label: o.label,
+            description: o.description || o.prompt,
+            value: o.prompt,
+          })),
+          guardrail: {
+            classification: guardDecision.classification,
+            confidence: guardDecision.confidence,
+            headline: guardDecision.headline,
+            reasons: guardDecision.reasons,
+            suggestedQuery: guardDecision.suggestedQuery,
+          },
+          debug: this.buildDebugMetadata(
+            requestId,
+            '',
+            [],
+            [],
+            '',
+            `blocked_${guardDecision.classification.toLowerCase()}`,
+            Math.round(performance.now() - pipelineStart),
+            0,
+            0,
+            0,
+            stages
+          ),
+        };
+      }
+
+      emit('Checking query scope', 'done', 1, `${guardDecision.classification} (${Math.round(guardDecision.confidence * 100)}%)`);
+      stages.push({
+        name: 'Query Scope Guardrail',
+        status: 'success',
+        durationMs: guardDuration,
+        details: `In scope: ${guardDecision.contract.domain || 'Banking Data'}`,
+      });
+
+      // -------------------------------------------------------------------
       // Stage 1: Schema & Semantic Retrieval
       // -------------------------------------------------------------------
       const retrievalStart = performance.now();
-      emit('Understanding the question', 'start', 1);
+      emit('Understanding the question', 'start', 2);
       const retrieval = this.schemaRetriever.retrieve(request.question);
-      emit('Understanding the question', 'done', 1, `${retrieval.retrievedTableNames.length} tables`);
+      emit('Understanding the question', 'done', 2, `${retrieval.retrievedTableNames.length} tables`);
       stages.push({
         name: 'Schema & Semantic Retrieval',
         status: 'success',
@@ -275,12 +370,12 @@ export class QueryOrchestrator {
       const conversationContext = this.getConversationContext(request);
 
       let plan: SQLPlan;
-      emit('Planning the query', 'start', 2);
+      emit('Planning the query', 'start', 3);
       if (this.config.fastMode && !this.shouldPlan(request.question)) {
         // No LLM call — the question itself carries the intent, and generation
         // reads the schema and semantics directly.
         plan = this.buildInlinePlan(request.question, retrieval, conversationContext);
-        emit('Planning the query', 'skipped', 2, 'not needed for this question');
+        emit('Planning the query', 'skipped', 3, 'not needed for this question');
       } else {
         plan = await this.generateSQLPlan(request.question, retrieval, conversationContext);
         const planLatency = Math.round(performance.now() - planStart);
@@ -291,16 +386,16 @@ export class QueryOrchestrator {
           durationMs: planLatency,
           details: `Intent: ${plan.intent}`,
         });
-        emit('Planning the query', 'done', 2, `${planLatency} ms`);
+        emit('Planning the query', 'done', 3, `${planLatency} ms`);
       }
 
       // -------------------------------------------------------------------
       // Stage 3: SQL Generation
       // -------------------------------------------------------------------
       const genStart = performance.now();
-      emit('Writing SQL', 'start', 3);
+      emit('Writing SQL', 'start', 4);
       let sql = await this.generateSQL(plan, retrieval);
-      emit('Writing SQL', 'done', 3, `${Math.round(performance.now() - genStart)} ms`);
+      emit('Writing SQL', 'done', 4, `${Math.round(performance.now() - genStart)} ms`);
       const genLatency = Math.round(performance.now() - genStart);
       totalLlmLatency += genLatency;
       stages.push({
@@ -314,9 +409,9 @@ export class QueryOrchestrator {
       // Stage 4: SQL Validation
       // -------------------------------------------------------------------
       const valStart = performance.now();
-      emit('Checking safety', 'start', 4);
+      emit('Checking safety', 'start', 5);
       let validation = this.guardian.validate(sql);
-      emit('Checking safety', validation.valid ? 'done' : 'error', 4,
+      emit('Checking safety', validation.valid ? 'done' : 'error', 5,
         validation.valid ? 'passed guardrails' : 'repairing');
       stages.push({
         name: 'SQL Validation',
@@ -363,10 +458,10 @@ export class QueryOrchestrator {
       // Stage 5: SQL Execution
       // -------------------------------------------------------------------
       const execStart = performance.now();
-      emit('Querying the database', 'start', 5);
+      emit('Querying the database', 'start', 6);
       try {
         const result = await this.db.executeQuery(executableSql, [], this.config.sqlTimeoutMs);
-        emit('Querying the database', 'done', 5, `${result.rowCount} rows`);
+        emit('Querying the database', 'done', 6, `${result.rowCount} rows`);
         const execMs = Math.round(performance.now() - execStart);
         stages.push({
           name: 'SQL Execution',
@@ -382,7 +477,7 @@ export class QueryOrchestrator {
         const truncated = result.rowCount >= this.config.maxResultRows;
 
         // Zero rows is the one case where the user needs an explanation, not a summary
-        emit(result.rowCount === 0 ? 'Explaining the empty result' : 'Summarising', 'start', 6);
+        emit(result.rowCount === 0 ? 'Explaining the empty result' : 'Summarising', 'start', 7);
         let emptyDiagnosis: EmptyResultProbe[] | undefined;
         let summary: { summary: string; filters: string[] };
         if (result.rowCount === 0) {
@@ -400,7 +495,7 @@ export class QueryOrchestrator {
           durationMs: summaryLatency,
         });
 
-        emit('Summarising', 'done', 6);
+        emit('Summarising', 'done', 7);
 
         // Update conversation context
         this.updateConversationContext(request, sql, plan, retrieval.retrievedTableNames);

@@ -98,11 +98,17 @@ const DashboardView: React.FC<DashboardViewProps> = ({
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 12, color: 'var(--ink-4)' }}>
             {aiReady && (
               <>
-                <span className="dot" style={{ color: 'var(--ok)', width: 6, height: 6 }} />
-                <span>{aiModel || 'AI Ready'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="dot" style={{ color: 'var(--ok)', width: 6, height: 6 }} />
+                  <span>{aiModel || 'AI Ready'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="dot" style={{ color: 'var(--ok)', width: 6, height: 6 }} />
+                  <span>RDB Scope Guard Active</span>
+                </div>
               </>
             )}
           </div>
