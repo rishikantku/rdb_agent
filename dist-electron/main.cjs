@@ -292,7 +292,7 @@ async function initAIServices() {
 	}
 	aiInitPromise = (async () => {
 		try {
-			const { initializeBackend } = await Promise.resolve().then(() => require("./init-CrlvjYcO.cjs"));
+			const { initializeBackend } = await Promise.resolve().then(() => require("./init-C15LJbgD.cjs"));
 			const databaseDir = path.default.join(electron.app.getAppPath(), "database");
 			aiServices = await initializeBackend({
 				databaseDir: fs.default.existsSync(databaseDir) ? databaseDir : path.default.join(process.cwd(), "database"),
@@ -409,7 +409,7 @@ electron.ipcMain.handle("ai:health", async () => {
 			initialized: false,
 			error: "AI services not available"
 		};
-		const { healthCheck } = await Promise.resolve().then(() => require("./init-CrlvjYcO.cjs"));
+		const { healthCheck } = await Promise.resolve().then(() => require("./init-C15LJbgD.cjs"));
 		return {
 			initialized: true,
 			...await healthCheck(aiServices)

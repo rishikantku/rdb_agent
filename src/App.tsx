@@ -136,7 +136,7 @@ const App = () => {
       {/* ===== Topbar ===== */}
       <header className="topbar">
         <div className="topbar-left">
-          <Logo size={26} />
+          <Logo size={32} subtitle="BANKING DATA INTELLIGENCE" />
         </div>
 
         <div className="topbar-center">

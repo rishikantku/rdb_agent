@@ -1,4 +1,4 @@
-<title>Ask the Bank</title>
+<title>RDB Agent — Banking Data Intelligence</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
   :root{
@@ -105,11 +105,11 @@
   .tag.prod{background:rgba(63,182,139,.12);color:var(--ok);border:1px solid rgba(63,182,139,.3);padding:2px 7px}
 
   /* navigation */
-  /* Nexus lockup */
-  .lockup{display:flex;align-items:center;gap:14px}
-  .lockup .mark{width:46px;height:46px;flex-shrink:0}
-  .lockup .wm{font-family:var(--serif);font-size:34px;font-weight:600;letter-spacing:.10em;color:var(--ivory);line-height:1}
-  .lockup .desc{font-family:var(--mono);font-size:11px;letter-spacing:.19em;text-transform:uppercase;color:var(--dim);margin-top:5px}
+  /* RDB Agent lockup */
+  .lockup{display:flex;align-items:center;gap:16px}
+  .lockup .mark{width:52px;height:52px;flex-shrink:0}
+  .lockup .wm{font-family:var(--sans);font-size:32px;letter-spacing:-.03em;color:var(--ivory);line-height:1}
+  .lockup .desc{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-top:5px}
   .tagline{font-family:var(--serif);font-style:italic;font-size:27px;color:var(--gold);line-height:1.3}
 
   /* brand plate — the wordmark is dark navy, so it needs a light ground */
@@ -150,33 +150,55 @@ const add = (eyebrow, title, sub, body) => S.push({eyebrow, title, sub, body});
 /* 1 */ add('Technology &amp; Digital Transformation Initiative','','',`
   <div class="body" style="justify-content:center;gap:0">
     <div class="lockup">
-      <svg class="mark" viewBox="0 0 46 46" fill="none" aria-hidden="true">
-        <g stroke="var(--gold)" stroke-width="1.1" opacity=".55">
-          <path d="M23 23 L23 6"/><path d="M23 23 L38 14.5"/><path d="M23 23 L38 31.5"/>
-          <path d="M23 23 L23 40"/><path d="M23 23 L8 31.5"/><path d="M23 23 L8 14.5"/>
-        </g>
-        <g fill="var(--gold)" opacity=".85">
-          <circle cx="23" cy="6" r="2.6"/><circle cx="38" cy="14.5" r="2.6"/><circle cx="38" cy="31.5" r="2.6"/>
-          <circle cx="23" cy="40" r="2.6"/><circle cx="8" cy="31.5" r="2.6"/><circle cx="8" cy="14.5" r="2.6"/>
-        </g>
-        <circle cx="23" cy="23" r="6.2" fill="var(--gold)"/>
-        <circle cx="23" cy="23" r="2.6" fill="#080D16"/>
+      <svg class="mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="presTileBg" x1="4" y1="2" x2="44" y2="46" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#0B1C33"/>
+            <stop offset="55%" stop-color="#061224"/>
+            <stop offset="100%" stop-color="#020812"/>
+          </linearGradient>
+          <linearGradient id="presTileBorder" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#3B82F6" stop-opacity="0.7"/>
+            <stop offset="100%" stop-color="#0284C7" stop-opacity="0.4"/>
+          </linearGradient>
+          <linearGradient id="presAxialBeam" x1="24" y1="38" x2="24" y2="8" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.2"/>
+            <stop offset="30%" stop-color="#00E5FF" stop-opacity="0.8"/>
+            <stop offset="85%" stop-color="#38BDF8"/>
+            <stop offset="100%" stop-color="#FFFFFF"/>
+          </linearGradient>
+        </defs>
+        <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#presTileBg)" stroke="url(#presTileBorder)" stroke-width="1.2"/>
+        <circle cx="24" cy="11" r="10" fill="#00E5FF" fill-opacity="0.2"/>
+        <path d="M12 30.5 L24 37 L24 39.5 L12 33 Z" fill="#1E40AF"/>
+        <path d="M24 37 L36 30.5 L36 33 L24 39.5 Z" fill="#1E3A8A"/>
+        <path d="M24 29.5 L36 30.5 L24 37 L12 30.5 Z" fill="#1E3A8A" fill-opacity="0.5"/>
+        <path d="M12 22.5 L24 29 L24 31.5 L12 25 Z" fill="#0284C7"/>
+        <path d="M24 29 L36 22.5 L36 25 L24 31.5 Z" fill="#0369A1"/>
+        <path d="M24 21.5 L36 22.5 L24 29 L12 22.5 Z" fill="#0284C7" fill-opacity="0.5"/>
+        <path d="M12 14.5 L24 21 L24 23.5 L12 17 Z" fill="#38BDF8"/>
+        <path d="M24 21 L36 14.5 L36 17 L24 23.5 Z" fill="#2563EB"/>
+        <path d="M24 13.5 L36 14.5 L24 21 L12 14.5 Z" fill="#38BDF8" fill-opacity="0.5"/>
+        <line x1="24" y1="37" x2="24" y2="10" stroke="url(#presAxialBeam)" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="24" cy="9.5" r="4" fill="#00E5FF" fill-opacity="0.35"/>
+        <circle cx="24" cy="9.5" r="2.6" fill="#00F0FF"/>
+        <circle cx="24" cy="9.5" r="1" fill="#FFFFFF"/>
       </svg>
       <div>
-        <div class="wm">NEXUS</div>
+        <div class="wm"><span style="font-weight:800;letter-spacing:-0.04em">RDB</span> <span style="font-weight:500;color:#3B7BF7">Agent</span></div>
         <div class="desc">Banking Data Intelligence</div>
       </div>
     </div>
 
     <div style="height:24px"></div>
-    <div class="tagline">“Ask the bank. In plain language.”</div>
+    <div class="tagline">“Ask your bank data. In plain language.”</div>
 
     <div style="height:22px"></div>
     <h1 style="font-size:44px;max-width:26ch">AI-Powered Natural&nbsp;Language Data Access</h1>
 
     <div style="height:14px"></div>
     <div class="t" style="max-width:74ch;font-size:16px">
-      Nexus turns a business question into validated SQL, runs it under the asker's own
+      RDB Agent turns a business question into validated SQL, runs it under the asker's own
       permissions, and returns the answer together with the query that produced it.
     </div>
 
@@ -246,7 +268,7 @@ const add = (eyebrow, title, sub, body) => S.push({eyebrow, title, sub, body});
     </div>
   </div>`);
 
-/* 4 */ add('03 — The Vision','Ask the Bank','The questions senior management actually asks &mdash; answered directly.',`
+/* 4 */ add('03 — The Vision','RDB Agent in Action','The questions senior management actually asks &mdash; answered directly.',`
   <div class="body">
     <div style="display:flex;flex-direction:column;gap:11px">
       <div class="panel"><div class="quote">“Which branches in Jharkhand have loan growth above 15% year-on-year but declining employee productivity?”</div></div>
@@ -774,7 +796,7 @@ stage.innerHTML = S.map((s, i) => `
   <section class="slide" data-i="${i}">
     ${s.title ? `<div class="eyebrow">${s.eyebrow}</div><h2>${s.title}</h2>${s.sub ? `<div class="sub">${s.sub}</div>` : ''}` : ''}
     ${s.body}
-    <div class="foot"><span>Ask the Bank &middot; Confidential &nbsp;·&nbsp; Powered by <a href="https://p5digital.com/" target="_blank" rel="noopener">P5 Digital Solutions Private Limited</a></span></div>
+    <div class="foot"><span>RDB Agent &middot; Confidential &nbsp;·&nbsp; Powered by <a href="https://p5digital.com/" target="_blank" rel="noopener">P5 Digital Solutions Private Limited</a></span></div>
     <div class="bar"><i style="width:${((i + 1) / S.length) * 100}%"></i></div>
   </section>`).join('');
 

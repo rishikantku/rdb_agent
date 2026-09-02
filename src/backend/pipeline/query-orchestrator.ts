@@ -367,7 +367,6 @@ export class QueryOrchestrator {
       // Stage 2: SQL Planning
       // -------------------------------------------------------------------
       const planStart = performance.now();
-      const conversationContext = this.getConversationContext(request);
 
       let plan: SQLPlan;
       emit('Planning the query', 'start', 3);

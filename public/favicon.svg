@@ -1,11 +1,45 @@
-<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="32" height="32" rx="7" fill="#0B1F3A"/>
-  <g fill="#FFFFFF" opacity="0.88">
-    <rect x="5" y="20.5" width="14.5" height="3.4" rx="1.7"/>
-    <rect x="5" y="14.4" width="10.5" height="3.4" rx="1.7"/>
-    <rect x="5" y="8.3" width="6.5" height="3.4" rx="1.7"/>
-  </g>
-  <path d="M8.5 22.2 L13.5 16.1 L18.5 10 L23.5 10" stroke="#3B7BF7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
-  <circle cx="25" cy="10" r="3" fill="#3B7BF7"/>
-  <circle cx="25" cy="10" r="1.1" fill="#0B1F3A"/>
+<svg width="64" height="64" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tileBg" x1="4" y1="2" x2="44" y2="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#0B1C33"/>
+      <stop offset="55%" stopColor="#061224"/>
+      <stop offset="100%" stopColor="#020812"/>
+    </linearGradient>
+    <linearGradient id="tileBorder" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.7"/>
+      <stop offset="100%" stopColor="#0284C7" stopOpacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="axialBeam" x1="24" y1="38" x2="24" y2="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#00E5FF" stopOpacity="0.2"/>
+      <stop offset="30%" stopColor="#00E5FF" stopOpacity="0.8"/>
+      <stop offset="85%" stopColor="#38BDF8"/>
+      <stop offset="100%" stopColor="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="1" y="1" width="46" height="46" rx="12" fill="url(#tileBg)" stroke="url(#tileBorder)" stroke-width="1.2"/>
+  <circle cx="24" cy="11" r="10" fill="#00E5FF" fill-opacity="0.2"/>
+
+  <!-- Tier 1: Bottom -->
+  <path d="M12 30.5 L24 37 L24 39.5 L12 33 Z" fill="#1E40AF"/>
+  <path d="M24 37 L36 30.5 L36 33 L24 39.5 Z" fill="#1E3A8A"/>
+  <path d="M24 29.5 L36 30.5 L24 37 L12 30.5 Z" fill="#1E3A8A" fill-opacity="0.5"/>
+
+  <!-- Tier 2: Middle -->
+  <path d="M12 22.5 L24 29 L24 31.5 L12 25 Z" fill="#0284C7"/>
+  <path d="M24 29 L36 22.5 L36 25 L24 31.5 Z" fill="#0369A1"/>
+  <path d="M24 21.5 L36 22.5 L24 29 L12 22.5 Z" fill="#0284C7" fill-opacity="0.5"/>
+
+  <!-- Tier 3: Top -->
+  <path d="M12 14.5 L24 21 L24 23.5 L12 17 Z" fill="#38BDF8"/>
+  <path d="M24 21 L36 14.5 L36 17 L24 23.5 Z" fill="#2563EB"/>
+  <path d="M24 13.5 L36 14.5 L24 21 L12 14.5 Z" fill="#38BDF8" fill-opacity="0.5"/>
+
+  <!-- Axial Beam -->
+  <line x1="24" y1="37" x2="24" y2="10" stroke="url(#axialBeam)" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Apex Node -->
+  <circle cx="24" cy="9.5" r="4" fill="#00E5FF" fill-opacity="0.35"/>
+  <circle cx="24" cy="9.5" r="2.6" fill="#00F0FF"/>
+  <circle cx="24" cy="9.5" r="1" fill="#FFFFFF"/>
 </svg>
