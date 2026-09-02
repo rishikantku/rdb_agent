@@ -292,7 +292,7 @@ async function initAIServices() {
 	}
 	aiInitPromise = (async () => {
 		try {
-			const { initializeBackend } = await Promise.resolve().then(() => require("./init-C15LJbgD.cjs"));
+			const { initializeBackend } = await Promise.resolve().then(() => require("./init-DQFhCgjN.cjs"));
 			const databaseDir = path.default.join(electron.app.getAppPath(), "database");
 			aiServices = await initializeBackend({
 				databaseDir: fs.default.existsSync(databaseDir) ? databaseDir : path.default.join(process.cwd(), "database"),
@@ -409,7 +409,7 @@ electron.ipcMain.handle("ai:health", async () => {
 			initialized: false,
 			error: "AI services not available"
 		};
-		const { healthCheck } = await Promise.resolve().then(() => require("./init-C15LJbgD.cjs"));
+		const { healthCheck } = await Promise.resolve().then(() => require("./init-DQFhCgjN.cjs"));
 		return {
 			initialized: true,
 			...await healthCheck(aiServices)
@@ -864,9 +864,13 @@ electron.ipcMain.handle("voice:transcribe", async (_, audioBuffer) => {
 	}
 });
 function createWindow() {
+	const iconPath = path.default.join(__dirname, "../public/icon.png");
+	const icnsPath = path.default.join(__dirname, "../build/icon.icns");
 	mainWindow = new electron.BrowserWindow({
 		width: 1200,
 		height: 800,
+		title: "RDB Agent",
+		icon: fs.default.existsSync(iconPath) ? iconPath : void 0,
 		webPreferences: {
 			preload: path.default.join(__dirname, "preload.cjs"),
 			nodeIntegration: false,
@@ -874,6 +878,10 @@ function createWindow() {
 		},
 		titleBarStyle: "hiddenInset"
 	});
+	if (process.platform === "darwin" && electron.app.dock) try {
+		const dockFile = fs.default.existsSync(icnsPath) ? icnsPath : iconPath;
+		if (fs.default.existsSync(dockFile)) electron.app.dock.setIcon(dockFile);
+	} catch {}
 	if (process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
 	else mainWindow.loadFile(path.default.join(__dirname, "../dist/index.html"));
 }

@@ -407,8 +407,38 @@ ipcMain.handle('voice:transcribe', async (_, audioBuffer: ArrayBuffer) => {
 });
 
 function createWindow() {
-  mainWindow = new BrowserWindow({ width: 1200, height: 800, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true }, titleBarStyle: 'hiddenInset' });
-  if (process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL); else mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  const iconPath = path.join(__dirname, '../public/icon.png');
+  const icnsPath = path.join(__dirname, '../build/icon.icns');
+
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    title: 'RDB Agent',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+    titleBarStyle: 'hiddenInset',
+  });
+
+  if (process.platform === 'darwin' && app.dock) {
+    try {
+      const dockFile = fs.existsSync(icnsPath) ? icnsPath : iconPath;
+      if (fs.existsSync(dockFile)) {
+        app.dock.setIcon(dockFile);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
 }
 
 app.whenReady().then(() => {

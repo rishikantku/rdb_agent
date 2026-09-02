@@ -252,12 +252,14 @@ export class QueryOrchestrator {
       const guardStart = performance.now();
       emit('Checking query scope', 'start', 1);
 
-      const conversationContext = this.getConversationContext(request);
-      const historyForGuardrail = conversationContext.history.map((h) => ({
+      const sessionData = request.sessionId ? this.conversations.get(request.sessionId) : undefined;
+      const historyForGuardrail = (sessionData?.history || []).map((h) => ({
         question: h.question,
         classification: 'IN_SCOPE' as const,
         timestamp: Date.now(),
       }));
+
+      const conversationContext = this.getConversationContext(request);
 
       const guardDecision = queryGuardrail.classify(request.question, historyForGuardrail);
       const guardDuration = Math.round(performance.now() - guardStart);
