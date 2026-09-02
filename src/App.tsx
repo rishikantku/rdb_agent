@@ -65,6 +65,34 @@ const DEFAULT_SAVED_QUERIES: SavedQuery[] = [
   },
 ];
 
+async function safeGetSetting(key: string): Promise<any> {
+  try {
+    if (window.electronAPI?.settingsGet) {
+      return await window.electronAPI.settingsGet(key);
+    }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(`rdb_${key}`);
+    return raw ? JSON.parse(raw) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function safeSetSetting(key: string, value: any): Promise<boolean> {
+  try {
+    if (window.electronAPI?.settingsSet) {
+      return await window.electronAPI.settingsSet(key, value);
+    }
+  } catch {}
+  try {
+    localStorage.setItem(`rdb_${key}`, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const App = () => {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [roleId, setRoleId] = useState<RoleId>('DGM');
@@ -86,23 +114,23 @@ const App = () => {
     checkEngine();
     loadSchema();
     // Restore persisted role
-    window.electronAPI.settingsGet('activeRole').then((r) => {
+    safeGetSetting('activeRole').then((r) => {
       if (r) setRoleId(r as RoleId);
     }).catch(() => {});
     // Restore theme
-    window.electronAPI.settingsGet('theme').then((t) => {
+    safeGetSetting('theme').then((t) => {
       if (t === 'dark' || t === 'light') {
         setTheme(t);
         document.documentElement.setAttribute('data-theme', t);
       }
     }).catch(() => {});
     // Restore saved & pinned queries
-    window.electronAPI.settingsGet('saved_queries').then((saved) => {
+    safeGetSetting('saved_queries').then((saved) => {
       if (Array.isArray(saved) && saved.length > 0) {
         setSavedQueries(saved.map((s: any) => ({ ...s, savedAt: new Date(s.savedAt) })));
       } else {
         setSavedQueries(DEFAULT_SAVED_QUERIES);
-        window.electronAPI.settingsSet('saved_queries', DEFAULT_SAVED_QUERIES).catch(() => {});
+        safeSetSetting('saved_queries', DEFAULT_SAVED_QUERIES).catch(() => {});
       }
     }).catch(() => {
       setSavedQueries(DEFAULT_SAVED_QUERIES);
@@ -111,6 +139,10 @@ const App = () => {
 
   const checkEngine = async () => {
     try {
+      if (!window.electronAPI?.aiHealth) {
+        setAiReady(false);
+        return;
+      }
       const h = await window.electronAPI.aiHealth();
       const ready = !!h?.llm?.healthy && !!h?.database?.connected;
       setAiReady(ready);
@@ -123,6 +155,7 @@ const App = () => {
 
   const loadSchema = async () => {
     try {
+      if (!window.electronAPI?.aiDbSchema) return;
       const res = await window.electronAPI.aiDbSchema();
       if (res.success && res.data) setCachedSchema(res.data);
     } catch { /* ignore */ }
@@ -169,7 +202,7 @@ const App = () => {
     if (existing) {
       const updated = savedQueries.filter((q) => q.id !== existing.id);
       setSavedQueries(updated);
-      window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+      safeSetSetting('saved_queries', updated).catch(() => {});
       showToast('Query removed from pinned queries', 'info');
     } else {
       const newQuery: SavedQuery = {
@@ -181,7 +214,7 @@ const App = () => {
       };
       const updated = [newQuery, ...savedQueries];
       setSavedQueries(updated);
-      window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+      safeSetSetting('saved_queries', updated).catch(() => {});
       showToast('Query pinned to favorites', 'success');
     }
   };
@@ -189,7 +222,7 @@ const App = () => {
   const handleTogglePinQuery = (id: string) => {
     const updated = savedQueries.map((q) => q.id === id ? { ...q, isPinned: !q.isPinned } : q);
     setSavedQueries(updated);
-    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    safeSetSetting('saved_queries', updated).catch(() => {});
     showToast('Pin status updated', 'info');
   };
 
@@ -203,14 +236,14 @@ const App = () => {
     };
     const updated = [newQuery, ...savedQueries];
     setSavedQueries(updated);
-    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    safeSetSetting('saved_queries', updated).catch(() => {});
     showToast('Query saved and pinned', 'success');
   };
 
   const handleDeleteSaved = (id: string) => {
     const updated = savedQueries.filter((q) => q.id !== id);
     setSavedQueries(updated);
-    window.electronAPI.settingsSet('saved_queries', updated).catch(() => {});
+    safeSetSetting('saved_queries', updated).catch(() => {});
     showToast('Saved query deleted', 'info');
   };
 
