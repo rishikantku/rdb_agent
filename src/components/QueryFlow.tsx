@@ -11,16 +11,16 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
   useEffect(() => {
     mermaid.initialize({
       startOnLoad: true,
-      theme: 'dark',
+      theme: 'default',
       securityLevel: 'loose',
       fontFamily: 'Inter, sans-serif',
       themeVariables: {
-        primaryColor: 'var(--accent)',
+        primaryColor: 'var(--accent-weak)',
         primaryTextColor: 'var(--ink)',
         primaryBorderColor: 'var(--accent)',
-        lineColor: 'var(--ink-3)',
-        secondaryColor: '#112240',
-        tertiaryColor: 'var(--surface-2)',
+        lineColor: 'var(--ink-4)',
+        secondaryColor: 'var(--surface-2)',
+        tertiaryColor: 'var(--surface-3)',
       }
     });
   }, []);
@@ -37,7 +37,9 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
         });
       } catch (err) {
         console.error('[Mermaid] Render failed', err);
-        containerRef.current.innerText = 'Diagram architecture is being refined... (Metadata format mismatch)';
+        if (containerRef.current) {
+          containerRef.current.innerText = 'Diagram could not be rendered.';
+        }
       }
     }
   }, [chart]);
@@ -45,32 +47,21 @@ const QueryFlow: React.FC<QueryFlowProps> = ({ chart }) => {
   if (!chart) return null;
 
   return (
-    <div className="glass fade-in" style={{ padding: '1.5rem', marginTop: '1.5rem', background: 'rgba(2, 12, 27, 0.6)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h4 style={{ margin: 0, color: 'var(--accent)', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-          Visual Implementation Strategy
-        </h4>
-        <span style={{ fontSize: '0.7rem', color: 'var(--ink-3)' }}>Interactive Data Flow</span>
-      </div>
+    <div style={{ padding: '8px 0' }}>
       <div ref={containerRef} style={{ width: '100%', display: 'flex', justifyContent: 'center', overflowX: 'auto' }} />
       <style>{`
-        .mermaid svg {
-          height: auto !important;
-          max-width: 100%;
-        }
+        .mermaid svg { height: auto !important; max-width: 100%; }
         .mermaid .node rect, .mermaid .node circle, .mermaid .node ellipse, .mermaid .node polygon {
-          fill: rgba(100, 255, 218, 0.05) !important;
-          stroke: var(--accent) !important;
+          fill: var(--accent-weak) !important;
+          stroke: var(--accent-line) !important;
           stroke-width: 1px !important;
         }
         .mermaid .edgeLabel {
-          background-color: transparent !important;
+          background-color: var(--surface) !important;
           color: var(--ink-3) !important;
           font-size: 0.75rem !important;
         }
-        .mermaid .messageText {
-          fill: var(--ink) !important;
-        }
+        .mermaid .messageText { fill: var(--ink) !important; }
       `}</style>
     </div>
   );

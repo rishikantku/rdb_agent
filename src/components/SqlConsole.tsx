@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, Play, X, ShieldCheck, AlertTriangle, Clock } from 'lucide-react';
+import { Terminal, Play, X, ShieldCheck, AlertTriangle, Clock, CheckCircle2, Lock } from 'lucide-react';
+import { DataTable, Sql } from './ui';
 
 interface SqlConsoleProps {
   open: boolean;
@@ -10,9 +11,7 @@ interface SqlConsoleProps {
 
 /**
  * Read-only SQL console. Every statement is validated by the same guardian that
- * checks the agent's own SQL, so writes are rejected before reaching Neon. Its
- * purpose is verification: run the agent's query yourself, or write your own and
- * compare the numbers.
+ * checks the agent's own SQL, so writes are rejected before reaching Neon.
  */
 const SqlConsole = ({ open, onClose, initialSql }: SqlConsoleProps) => {
   const [sql, setSql] = useState('');
@@ -65,84 +64,78 @@ const SqlConsole = ({ open, onClose, initialSql }: SqlConsoleProps) => {
   if (!open) return null;
 
   return (
-    <div
-      onClick={onClose}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(6,8,12,0.74)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '4vh 2rem' }}
-    >
-      <div
-        className="glass fade-in"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(1150px, 100%)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: '.9rem', padding: '1.25rem', background: 'var(--surface)' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Terminal size={16} color="var(--accent)" />
-            <h3 style={{ margin: 0, color: 'var(--ink)' }}>SQL Console</h3>
-            <span style={{ fontSize: '.72rem', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-              <ShieldCheck size={12} /> read-only &middot; Neon Postgres
-            </span>
+    <div className="overlay modal-center" onClick={onClose}>
+      <div className="modal-box fade" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Terminal size={18} color="var(--accent)" />
+            <h3 style={{ margin: 0, fontSize: 16 }}>SQL Console</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-4)' }}>
+              <ShieldCheck size={13} /> Read-only · Neon Postgres
+            </div>
           </div>
-          <button onClick={onClose} title="Close (Esc)" style={{ background: 'transparent', border: 'none', color: 'var(--ink-3)', padding: '4px' }}>
+          <button className="btn btn-quiet btn-icon" onClick={onClose} title="Close (Esc)">
             <X size={18} />
           </button>
         </div>
 
-        <textarea
-          ref={areaRef}
-          value={sql}
-          onChange={(e) => setSql(e.target.value)}
-          onKeyDown={onEditorKey}
-          spellCheck={false}
-          placeholder="SELECT COUNT(*) FROM customers WHERE status = 'ACTIVE';"
-          style={{ width: '100%', minHeight: '150px', fontFamily: 'monospace', fontSize: '.85rem', lineHeight: 1.5, color: 'var(--accent)', background: 'var(--surface-2)', resize: 'vertical' }}
-        />
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <textarea
+            ref={areaRef}
+            value={sql}
+            onChange={(e) => setSql(e.target.value)}
+            onKeyDown={onEditorKey}
+            spellCheck={false}
+            placeholder="SELECT COUNT(*) FROM customers WHERE status = 'ACTIVE';"
+            style={{ width: '100%', minHeight: '140px', fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, color: 'var(--ink)', background: 'var(--surface-2)', resize: 'vertical', borderRadius: 'var(--r-md)' }}
+          />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <button onClick={run} disabled={running || !sql.trim()}
-            style={{ background: 'var(--success)', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Play size={15} fill="white" /> {running ? 'Running…' : 'Run'}
-          </button>
-          <span style={{ fontSize: '.72rem', color: 'var(--ink-3)' }}>⌘/Ctrl + Enter</span>
-          {elapsed !== null && (
-            <span style={{ marginLeft: 'auto', fontSize: '.75rem', color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: '5px', fontFamily: 'monospace' }}>
-              <Clock size={12} /> {rowCount?.toLocaleString('en-IN')} rows in {elapsed} ms
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={run} disabled={running || !sql.trim()}>
+              <Play size={15} /> {running ? 'Running…' : 'Run'}
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>⌘/Ctrl + Enter</span>
+            {elapsed !== null && (
+              <span className="mono" style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Clock size={13} /> {rowCount?.toLocaleString('en-IN')} rows in {elapsed} ms
+              </span>
+            )}
+          </div>
+
+          {/* Validation badges */}
+          {rows.length > 0 && (
+            <div className="validation-row">
+              <span className="validation-badge"><CheckCircle2 size={12} /> SQL Validated</span>
+              <span className="validation-badge"><Lock size={12} /> Read-only</span>
+              <span className="validation-badge"><CheckCircle2 size={12} /> Executed</span>
+            </div>
+          )}
+
+          {warnings.map((w, i) => (
+            <div key={i} style={{ fontSize: 12.5, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <AlertTriangle size={13} /> {w}
+            </div>
+          ))}
+
+          {error && (
+            <div style={{ padding: '12px 16px', borderRadius: 'var(--r-md)', background: 'var(--danger-weak)', border: '1px solid rgba(179,38,30,0.18)', color: 'var(--danger)', fontSize: 13.5 }}>
+              <strong style={{ display: 'block', marginBottom: 3 }}>
+                {blocked ? 'Blocked by the SQL guardian' : 'The database rejected this statement'}
+              </strong>
+              {error}
+            </div>
+          )}
+
+          {rows.length > 0 && (
+            <DataTable rows={rows} pageSize={20} />
+          )}
+
+          {!running && !error && rows.length === 0 && rowCount === 0 && (
+            <div style={{ color: 'var(--ink-3)', padding: '24px', textAlign: 'center', fontSize: 14 }}>
+              The statement ran and returned no rows.
+            </div>
           )}
         </div>
-
-        {warnings.map((w, i) => (
-          <div key={i} style={{ fontSize: '.76rem', color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <AlertTriangle size={13} /> {w}
-          </div>
-        ))}
-
-        {error && (
-          <div style={{ padding: '.8rem 1rem', borderRadius: '4px', background: 'var(--danger-weak)', border: '1px solid rgba(222,106,100,0.35)', color: 'var(--danger)', fontSize: '.83rem' }}>
-            <strong style={{ display: 'block', marginBottom: '.2rem' }}>
-              {blocked ? 'Blocked by the SQL guardian' : 'The database rejected this statement'}
-            </strong>
-            {error}
-          </div>
-        )}
-
-        {rows.length > 0 && (
-          <div className="table-container" style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
-            <table>
-              <thead><tr>{Object.keys(rows[0]).map((k) => <th key={k}>{k}</th>)}</tr></thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i}>{Object.values(r).map((v: any, j) => <td key={j}>{v === null ? 'NULL' : String(v)}</td>)}</tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {!running && !error && rows.length === 0 && rowCount === 0 && (
-          <div style={{ color: 'var(--ink-3)', padding: '1.5rem', textAlign: 'center', fontSize: '.85rem' }}>
-            The statement ran and returned no rows.
-          </div>
-        )}
       </div>
     </div>
   );
