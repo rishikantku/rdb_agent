@@ -2,6 +2,23 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron/simple'
 import path from 'path'
+import { builtinModules } from 'module'
+
+// Anything Electron resolves at runtime must stay external. Listing
+// rollupOptions.external replaces the plugin's defaults, so 'electron' and the
+// node builtins have to be repeated here or they get bundled — which leaves
+// `app` undefined at startup. Native DB drivers must stay external too.
+const EXTERNALS = [
+  'electron',
+  'better-sqlite3',
+  'pg',
+  'mysql2',
+  'mysql2/promise',
+  'mssql',
+  'oracledb',
+  ...builtinModules,
+  ...builtinModules.map((m) => `node:${m}`),
+]
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -19,7 +36,7 @@ export default defineConfig({
               fileName: () => 'main.cjs',
             },
             rollupOptions: {
-              external: ['better-sqlite3'],
+              external: EXTERNALS,
             },
           },
         },

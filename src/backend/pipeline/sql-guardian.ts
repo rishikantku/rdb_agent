@@ -9,7 +9,9 @@
 // ============================================================================
 
 import { SchemaIntelligence } from '../schema/schema-intelligence.js';
-import { SQLDialect } from '../db/database-adapter.js';
+import type {
+  SQLDialect,
+} from '../db/database-adapter.js';
 
 // ---------------------------------------------------------------------------
 // Types

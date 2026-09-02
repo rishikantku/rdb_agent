@@ -11,11 +11,36 @@
 //   [Error Recovery Loop] → Result Presentation
 // ============================================================================
 
-import { LLMProvider, LLMResponse } from '../llm/llm-provider.js';
-import { SchemaRetriever, RetrievalResult } from '../schema/schema-retriever.js';
-import { SQLGuardian, ValidationResult } from './sql-guardian.js';
-import { DatabaseAdapter, SQLDialect } from '../db/database-adapter.js';
-import { AuditLogger, AuditEntry } from '../audit/audit-logger.js';
+import {
+  LLMProvider,
+} from '../llm/llm-provider.js';
+import type {
+  LLMResponse,
+} from '../llm/llm-provider.js';
+import {
+  SchemaRetriever,
+} from '../schema/schema-retriever.js';
+import type {
+  RetrievalResult,
+} from '../schema/schema-retriever.js';
+import {
+  SQLGuardian,
+} from './sql-guardian.js';
+import type {
+  ValidationResult,
+} from './sql-guardian.js';
+import {
+  DatabaseAdapter,
+} from '../db/database-adapter.js';
+import type {
+  SQLDialect,
+} from '../db/database-adapter.js';
+import {
+  AuditLogger,
+} from '../audit/audit-logger.js';
+import type {
+  AuditEntry,
+} from '../audit/audit-logger.js';
 import { randomUUID } from 'crypto';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +138,14 @@ export interface PipelineStage {
 }
 
 export interface OrchestratorConfig {
+  /**
+   * Skip the separate LLM planning call for questions that don't need it.
+   * Planning costs a full extra round trip (~270 output tokens) on
+   * decode-bound hardware, but it measurably buys correctness on
+   * multi-condition and trend questions — so it is skipped only when the
+   * question looks single-shot. See shouldPlan().
+   */
+  fastMode: boolean;
   maxRepairAttempts: number;
   maxResultRows: number;
   sqlTimeoutMs: number;
@@ -163,6 +196,7 @@ export class QueryOrchestrator {
     this.db = db;
     this.auditLogger = auditLogger;
     this.config = {
+      fastMode: config.fastMode ?? true,
       maxRepairAttempts: config.maxRepairAttempts ?? 3,
       maxResultRows: config.maxResultRows ?? 1000,
       sqlTimeoutMs: config.sqlTimeoutMs ?? 30000,
@@ -218,15 +252,23 @@ export class QueryOrchestrator {
       // -------------------------------------------------------------------
       const planStart = performance.now();
       const conversationContext = this.getConversationContext(request);
-      const plan = await this.generateSQLPlan(request.question, retrieval, conversationContext);
-      const planLatency = Math.round(performance.now() - planStart);
-      totalLlmLatency += planLatency;
-      stages.push({
-        name: 'SQL Planning',
-        status: 'success',
-        durationMs: planLatency,
-        details: `Intent: ${plan.intent}`,
-      });
+
+      let plan: SQLPlan;
+      if (this.config.fastMode && !this.shouldPlan(request.question)) {
+        // No LLM call — the question itself carries the intent, and generation
+        // reads the schema and semantics directly.
+        plan = this.buildInlinePlan(request.question, retrieval, conversationContext);
+      } else {
+        plan = await this.generateSQLPlan(request.question, retrieval, conversationContext);
+        const planLatency = Math.round(performance.now() - planStart);
+        totalLlmLatency += planLatency;
+        stages.push({
+          name: 'SQL Planning',
+          status: 'success',
+          durationMs: planLatency,
+          details: `Intent: ${plan.intent}`,
+        });
+      }
 
       // -------------------------------------------------------------------
       // Stage 3: SQL Generation
@@ -511,6 +553,54 @@ export class QueryOrchestrator {
     return this.dataCoverage;
   }
 
+  /**
+   * Questions whose SQL needs a plan first. Dropping planning on these produced
+   * wrong or invalid SQL in testing (multi-condition and trend questions
+   * especially), so they keep the extra round trip. Everything else skips it.
+   */
+  private shouldPlan(question: string): boolean {
+    const q = question.toLowerCase();
+
+    const complexSignals = [
+      'consecutive', 'year over year', 'year-over-year', 'yoy',
+      'quarter over quarter', 'quarter-over-quarter',
+      'compare', 'comparison', 'versus', ' vs ',
+      'while', 'despite', 'whereas',
+      'trend', 'growth', 'declin', 'increas', 'decreas',
+      'percentile', 'median', 'top 5%', 'top 10%', 'bottom',
+      'above their', 'below their', 'above the average', 'below the average',
+      'in each', 'for every', 'within each', 'per region', 'per department',
+      'before and after', 'unresolved', 'attrition',
+    ];
+
+    if (complexSignals.some((sig) => q.includes(sig))) return true;
+
+    // Long questions tend to carry several conditions even without a keyword
+    return question.trim().split(/\s+/).length > 18;
+  }
+
+  /**
+   * A plan built without an LLM round trip. Carries the question and retrieved
+   * context so generation, repair and audit keep the same shape as full mode.
+   */
+  private buildInlinePlan(
+    question: string,
+    retrieval: RetrievalResult,
+    conversationContext?: string
+  ): SQLPlan {
+    return {
+      intent: question,
+      entities: retrieval.retrievedTableNames,
+      filters: [],
+      metrics: [],
+      groupBy: [],
+      orderBy: [],
+      reasoning: conversationContext
+        ? `${conversationContext}\n\nAnswer this question: ${question}`
+        : question,
+    };
+  }
+
   private async generateSQLPlan(
     question: string,
     retrieval: RetrievalResult,
@@ -571,8 +661,8 @@ ${coverage}
 === SQL DIALECT RULES ===
 ${dialectInstructions}
 
-=== QUERY PLAN ===
-${JSON.stringify(plan, null, 2)}
+=== WHAT TO ANSWER ===
+${this.config.fastMode ? plan.reasoning : JSON.stringify(plan, null, 2)}
 
 RULES:
 1. Generate ONLY a single SELECT query (or WITH...SELECT for CTEs).
@@ -610,7 +700,8 @@ RULES:
     Hardcoding a window such as '2022-04-01' to '2024-03-31' will silently match
     zero rows if the data lies outside it. Today's date is ${new Date().toISOString().slice(0, 10)}.
 
-Respond with ONLY the SQL query. No explanations, no markdown, no code blocks.`;
+Respond with ONLY the SQL query. No explanations, no markdown, no code blocks,
+no commentary before or after. Do not restate the question. Start with SELECT or WITH.`;
 
     const response = await this.llm.generate({
       systemPrompt,
@@ -668,25 +759,29 @@ No CTEs unless necessary. Never reference a column that does not exist.`,
         jsonMode: true,
       });
 
-      const probes: EmptyResultProbe[] = [];
+      // Probes are independent — run them concurrently so a diagnosis costs one
+      // round trip, not four. This path only runs on an empty result, which is
+      // already the moment the user is waiting on an explanation.
+      const probes: EmptyResultProbe[] = await Promise.all(
+        (response.parsed.probes ?? [])
+          .filter((probe) => probe?.sql && probe?.condition)
+          .slice(0, 4)
+          .map(async (probe): Promise<EmptyResultProbe> => {
+            const validation = this.guardian.validate(probe.sql);
+            if (!validation.valid) {
+              return { condition: probe.condition, matchCount: null, error: 'probe failed validation' };
+            }
 
-      for (const probe of (response.parsed.probes ?? []).slice(0, 4)) {
-        if (!probe?.sql || !probe?.condition) continue;
-
-        const validation = this.guardian.validate(probe.sql);
-        if (!validation.valid) {
-          probes.push({ condition: probe.condition, matchCount: null, error: 'probe failed validation' });
-          continue;
-        }
-
-        try {
-          const res = await this.db.executeQuery(validation.modifiedSql || probe.sql, [], 10000);
-          const n = Number(res.rows?.[0]?.n ?? res.rows?.[0]?.count);
-          probes.push({ condition: probe.condition, matchCount: Number.isFinite(n) ? n : null });
-        } catch (err: any) {
-          probes.push({ condition: probe.condition, matchCount: null, error: err.message });
-        }
-      }
+            try {
+              const res = await this.db.executeQuery(validation.modifiedSql || probe.sql, [], 8000);
+              // COUNT comes back as a string from pg (bigint), so coerce
+              const n = Number(res.rows?.[0]?.n ?? res.rows?.[0]?.count);
+              return { condition: probe.condition, matchCount: Number.isFinite(n) ? n : null };
+            } catch (err: any) {
+              return { condition: probe.condition, matchCount: null, error: err.message };
+            }
+          })
+      );
 
       const measured = probes.filter((p) => p.matchCount !== null);
       if (measured.length === 0) return { summary: fallback, probes };
@@ -736,7 +831,7 @@ No CTEs unless necessary. Never reference a column that does not exist.`,
     const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
     const systemPrompt = `You are a banking data analyst writing an executive summary.
-Given a user question and query results, write a brief, clear summary (2-3 sentences max).
+Given a user question and query results, write a brief, clear summary. Two sentences maximum.
 
 Question: "${question}"
 Total rows returned: ${rowCount}${truncated ? ` (TRUNCATED — the row cap was reached, so the full result set is LARGER than ${rowCount}. Say the list is truncated and never present ${rowCount} as a complete total.)` : ''}
@@ -763,7 +858,7 @@ CRITICAL — this summary is read by bank executives as fact:
         systemPrompt,
         userPrompt: 'Generate the executive summary.',
         temperature: 0.1,
-        maxTokens: 500,
+        maxTokens: 220,
         jsonMode: true,
       });
       return response.parsed;

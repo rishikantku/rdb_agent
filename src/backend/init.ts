@@ -11,16 +11,28 @@
 
 import path from 'path';
 import { PostgresAdapter } from './db/postgres-adapter.js';
-import { DatabaseConfig } from './db/database-adapter.js';
+import type {
+  DatabaseConfig,
+} from './db/database-adapter.js';
 import { SchemaIntelligence } from './schema/schema-intelligence.js';
 import { SemanticLayer } from './schema/semantic-layer.js';
 import { SchemaRetriever } from './schema/schema-retriever.js';
 import { SchemaConfigLoader } from './schema/schema-config-loader.js';
 import { SelfHostedLLMProvider } from './llm/self-hosted-provider.js';
-import { LLMProvider, LLMConfig } from './llm/llm-provider.js';
+import {
+  LLMProvider,
+} from './llm/llm-provider.js';
+import type {
+  LLMConfig,
+} from './llm/llm-provider.js';
 import { SQLGuardian } from './pipeline/sql-guardian.js';
 import { AuditLogger } from './audit/audit-logger.js';
-import { QueryOrchestrator, OrchestratorConfig } from './pipeline/query-orchestrator.js';
+import {
+  QueryOrchestrator,
+} from './pipeline/query-orchestrator.js';
+import type {
+  OrchestratorConfig,
+} from './pipeline/query-orchestrator.js';
 
 // ---------------------------------------------------------------------------
 // Configuration from environment

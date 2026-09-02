@@ -10,8 +10,18 @@
 //   Build schema context → Serialize for prompt
 // ============================================================================
 
-import { SchemaIntelligence, SchemaContext } from './schema-intelligence.js';
-import { SemanticLayer, SemanticResolution } from './semantic-layer.js';
+import {
+  SchemaIntelligence,
+} from './schema-intelligence.js';
+import type {
+  SchemaContext,
+} from './schema-intelligence.js';
+import {
+  SemanticLayer,
+} from './semantic-layer.js';
+import type {
+  SemanticResolution,
+} from './semantic-layer.js';
 
 // ---------------------------------------------------------------------------
 // Types

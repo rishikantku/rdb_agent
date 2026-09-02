@@ -1,7 +1,7 @@
 // ============================================================================
-// RunPod GPU Pod Deployment — Qwen3-Coder-Next via vLLM
+// RunPod GPU Pod Deployment — Qwen2.5-Coder-32B-Instruct (AWQ) via vLLM
 // ============================================================================
-// Deploys a GPU pod on RunPod running vLLM with Qwen3-Coder-Next.
+// Deploys a GPU pod on RunPod running vLLM with Qwen2.5-Coder-32B-Instruct-AWQ.
 // Uses the RunPod REST API to create and manage the pod.
 //
 // Usage:
@@ -11,10 +11,11 @@
 //   - RUNPOD_API_KEY in .env
 //
 // Architecture:
-//   Mac → HTTPS → RunPod GPU Pod → vLLM → Qwen3-Coder-Next → SQL generation
+//   Mac → HTTPS → RunPod GPU Pod → vLLM → Qwen2.5-Coder-32B (AWQ) → SQL generation
 // ============================================================================
 
 import * as dotenv from 'dotenv';
+import fs from 'fs';
 dotenv.config();
 
 const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY!;
@@ -30,35 +31,31 @@ if (!RUNPOD_API_KEY) {
 // ---------------------------------------------------------------------------
 
 const POD_CONFIG = {
-  name: 'rdb-agent-qwen3-coder',
-  // Qwen3-Coder-Next: 80B total params, ~3B active (MoE)
-  // MoE loads ALL expert weights — needs ~160GB at FP16
-  // With 8-bit quantization: ~80GB weights + KV cache = ~100GB
-  // H200 NVL (143GB VRAM) gives comfortable headroom
-  gpuTypeId: 'NVIDIA H200',                       // $3.59/hr, 141GB VRAM
-  fallbackGpuTypeId: 'NVIDIA H100 NVL',            // $2.59/hr, 94GB VRAM — with FP8
+  name: 'rdb-agent-qwen3-coder-30b-a3b',
+  // Qwen3-Coder-30B-A3B, AWQ int4 (~18GB).
+  // MoE: ~30B total but only ~3B active per token, so it decodes several times
+  // faster than a dense 32B — decode throughput is what dominates latency here.
+  // int4 keeps it Ampere-compatible (FP8 needs Ada/Hopper) and leaves plenty of
+  // room for KV cache on a 48GB card.
+  gpuTypeId: 'NVIDIA RTX A6000',                  // $0.33/hr, 48GB
+  fallbackGpuTypeId: 'NVIDIA L40S',               // $0.79/hr, 48GB
   gpuCount: 1,
-  volumeInGb: 200,                               // 80B model weights + HF cache + FP8 calibration
-  containerDiskInGb: 60,                         // Container storage
-  // vLLM Docker image with CUDA
+  volumeInGb: 60,                                 // ~19GB weights + HF cache
+  containerDiskInGb: 30,
   imageName: 'vllm/vllm-openai:latest',
-  // vLLM startup command — quantized for H200
   dockerArgs: [
-    '--model', 'Qwen/Qwen3-Coder-Next',
-    '--served-model-name', 'Qwen/Qwen3-Coder-Next',
+    '--model', 'cyankiwi/Qwen3-Coder-30B-A3B-Instruct-AWQ-4bit',
+    '--served-model-name', 'Qwen3-Coder-30B-A3B',
     '--host', '0.0.0.0',
     '--port', '8000',
     '--max-model-len', '32768',
     '--dtype', 'auto',
-    '--quantization', 'fp8',           // FP8 quantization: ~80GB, near-FP16 quality
     '--trust-remote-code',
     '--enable-prefix-caching',
-    '--max-num-seqs', '5',             // Conservative concurrency initially
-    '--gpu-memory-utilization', '0.92',
+    '--max-num-seqs', '5',
+    '--gpu-memory-utilization', '0.90',
   ].join(' '),
-  // Expose port 8000 for the OpenAI-compatible API
   ports: '8000/http',
-  // Volume mount path for HuggingFace cache
   volumeMountPath: '/root/.cache/huggingface',
 };
 
@@ -131,7 +128,7 @@ async function listGpuTypes(): Promise<void> {
 
 async function createPod(): Promise<string> {
   console.log('\n🚀 Creating RunPod GPU pod...');
-  console.log(`   Model: Qwen3-Coder-Next (80B MoE, ~3B active)`);
+  console.log(`   Model: Qwen3-Coder-30B-A3B (MoE, AWQ int4)`);
   console.log(`   GPU: ${POD_CONFIG.gpuTypeId}`);
   console.log(`   Server: vLLM (OpenAI-compatible)`);
 
@@ -238,7 +235,7 @@ async function getPodStatus(podId: string): Promise<{ status: string; url?: stri
 
 async function waitForPod(podId: string, maxWaitMs = 600000): Promise<string> {
   console.log('\n⏳ Waiting for pod to start and model to load...');
-  console.log('   (Qwen3-Coder-Next takes ~3-5 min to download + load)\n');
+  console.log('   (~19GB download, typically ~3-6 min to serve)\n');
 
   const startTime = Date.now();
   let lastStatus = '';
@@ -282,13 +279,12 @@ async function waitForPod(podId: string, maxWaitMs = 600000): Promise<string> {
 
 function updateEnvFile(endpoint: string): void {
   const envPath = '.env';
-  const fs = require('fs');
   let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
 
   // Add or update LLM_BASE_URL
   const llmVars: Record<string, string> = {
     'LLM_BASE_URL': endpoint,
-    'LLM_MODEL': 'Qwen/Qwen3-Coder-Next',
+    'LLM_MODEL': 'Qwen3-Coder-30B-A3B',
     'LLM_API_KEY': RUNPOD_API_KEY,
     'LLM_TEMPERATURE': '0.05',
     'LLM_MAX_TOKENS': '4096',

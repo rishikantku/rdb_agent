@@ -18,6 +18,8 @@ import fs from 'fs';
 import path from 'path';
 import {
   SchemaIntelligence,
+} from './schema-intelligence.js';
+import type {
   TableMetadata,
   ColumnMetadata,
   Relationship,
@@ -25,6 +27,8 @@ import {
 } from './schema-intelligence.js';
 import {
   SemanticLayer,
+} from './semantic-layer.js';
+import type {
   BusinessTerm,
 } from './semantic-layer.js';
 

@@ -9,6 +9,9 @@
 import { Client as PGClient, Pool as PGPool } from 'pg';
 import {
   DatabaseAdapter,
+  PostgresDialectHelpers,
+} from './database-adapter.js';
+import type {
   DatabaseConfig,
   QueryResult,
   FieldInfo,
@@ -17,7 +20,6 @@ import {
   IntrospectedColumn,
   ConnectionTestResult,
   DialectHelpers,
-  PostgresDialectHelpers,
 } from './database-adapter.js';
 
 export class PostgresAdapter extends DatabaseAdapter {

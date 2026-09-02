@@ -2,10 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, Landmark, CreditCard, Activity, Database, FolderOpen, Search, Play, FileSpreadsheet, FileText,
   Terminal, ShieldAlert, PlusCircle, Database as DatabaseIcon, Settings2, Trash2, Box, Layers, BarChart3,
-  Network, Mic, MicOff
+  Network, Mic, MicOff, AlertTriangle, CheckCircle2, Clock, ShieldCheck
 } from 'lucide-react';
-import { convertNLtoSQL } from '../lib/gemini';
-import { convertNLtoSQLOpenAI } from '../lib/openai';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -41,6 +39,15 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
   const [activeId, setActiveId] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cards, setCards] = useState<StatCardProps[]>([]);
+  // Pipeline response detail — summary, guardrails, and honest empty/truncated states
+  const [summary, setSummary] = useState<string>('');
+  const [filters, setFilters] = useState<string[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<any[] | null>(null);
+  const [stages, setStages] = useState<any[]>([]);
+  const [clarifications, setClarifications] = useState<any[] | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [rowCount, setRowCount] = useState<number | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -171,19 +178,41 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
     }
   }, [isListening]);
 
-  const handleGenerateSQL = async () => {
-    setLoading(true); setResults([]); setSql(''); setMermaidChart(''); setError(null);
+  const resetResponse = () => {
+    setResults([]); setSql(''); setMermaidChart(''); setError(null);
+    setSummary(''); setFilters([]); setTruncated(false); setDiagnosis(null);
+    setStages([]); setClarifications(null); setElapsedMs(null); setRowCount(null);
+  };
+
+  // Runs the full on-prem pipeline: schema retrieval → semantic resolution →
+  // planning → SQL generation → guardrail validation → execution → summary.
+  const handleAsk = async () => {
+    setLoading(true); resetResponse();
     try {
-      const provider = await window.electronAPI.settingsGet('llmProvider') || 'gemini';
-      const geminiKey = await window.electronAPI.settingsGet('geminiAPIKey');
-      const openaiKey = await window.electronAPI.settingsGet('openaiAPIKey');
-      if (!schema) throw new Error('Connect a database first.');
-      const res = provider === 'gemini' 
-        ? await convertNLtoSQL(prompt, schema, geminiKey || '') 
-        : await convertNLtoSQLOpenAI(prompt, schema, openaiKey || '');
-      setSql(res.sql);
-      setMermaidChart(res.mermaid);
-    } catch (err: any) { setError(err.message); }
+      if (!externalConnected) throw new Error('Connect a database first.');
+
+      const res = await window.electronAPI.aiQuery(prompt, 'demo-session');
+
+      if (res?.sql) setSql(res.sql);
+      if (res?.debug?.pipelineStages) setStages(res.debug.pipelineStages);
+      if (typeof res?.executionTimeMs === 'number') setElapsedMs(res.executionTimeMs);
+
+      if (res?.success) {
+        setResults(res.data || []);
+        setRowCount(res.rowCount ?? (res.data?.length ?? 0));
+        setSummary(res.summary || '');
+        setFilters(res.filtersApplied || []);
+        setTruncated(!!res.truncated);
+        setDiagnosis(res.emptyResultDiagnosis || null);
+      } else if (res?.errorType === 'ambiguity') {
+        setClarifications(res.clarificationOptions || []);
+        setError(res.error || 'That question is ambiguous.');
+      } else {
+        setError(res?.error || 'The query could not be completed.');
+      }
+    } catch (err: any) {
+      setError(err.message);
+    }
     setLoading(false);
   };
 
@@ -288,8 +317,82 @@ const Dashboard: React.FC<DashboardProps> = ({ onConnectionChange, externalConne
               {isListening ? <MicOff size={18} color="#64ffda" /> : <Mic size={18} color="#8892b0" />}
             </button>
           </div>
-          <button onClick={handleGenerateSQL} disabled={!externalConnected || loading || !prompt} style={{ padding: '0 2rem', height: '80px' }}>{loading ? '...' : <Search size={24} />}</button>
+          <button onClick={handleAsk} disabled={!externalConnected || loading || !prompt} style={{ padding: '0 2rem', height: '80px' }}>{loading ? '...' : <Search size={24} />}</button>
         </div>
+
+        {loading && (
+          <div className="fade-in" style={{ marginTop: '1.5rem', display: 'flex', alignItems: 'center', gap: '10px', color: '#8892b0', fontSize: '0.85rem' }}>
+            <Clock size={14} className="mic-pulse" />
+            <span>Running on-premise model — retrieving schema, planning, generating and validating SQL…</span>
+          </div>
+        )}
+
+        {summary && (
+          <div className="fade-in glass" style={{ marginTop: '1.5rem', padding: '1.25rem', borderLeft: '3px solid #64ffda' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: '#64ffda', fontSize: '0.8rem' }}>
+              <CheckCircle2 size={14} /> Executive Summary
+            </div>
+            <p style={{ color: '#e6f1ff', lineHeight: 1.6, margin: 0 }}>{summary}</p>
+            {filters.length > 0 && (
+              <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                {filters.map((f, i) => (
+                  <span key={i} style={{ fontSize: '0.7rem', color: '#8892b0', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 10px' }}>{f}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {truncated && (
+          <div className="fade-in" style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '5px', color: '#f59e0b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={14} />
+            <span>Showing the first {rowCount?.toLocaleString('en-IN')} rows — the full result set is larger. Narrow the question for a complete answer.</span>
+          </div>
+        )}
+
+        {diagnosis && diagnosis.length > 0 && (
+          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid #f59e0b' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#f59e0b', fontSize: '0.8rem' }}>
+              <AlertTriangle size={14} /> Why this returned nothing
+            </div>
+            {diagnosis.map((d: any, i: number) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', padding: '6px 0', borderBottom: i < diagnosis.length - 1 ? '1px solid var(--border)' : 'none', fontSize: '0.85rem' }}>
+                <span style={{ color: '#e6f1ff' }}>{d.condition}</span>
+                <span style={{ color: d.matchCount === 0 ? '#ef4444' : '#10b981', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                  {d.matchCount === null ? 'n/a' : `${d.matchCount.toLocaleString('en-IN')} rows`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {clarifications && clarifications.length > 0 && (
+          <div className="fade-in glass" style={{ marginTop: '1rem', padding: '1.25rem', borderLeft: '3px solid #64ffda' }}>
+            <div style={{ marginBottom: '10px', color: '#64ffda', fontSize: '0.8rem' }}>Which did you mean?</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {clarifications.map((c: any, i: number) => (
+                <button key={i} onClick={() => { setPrompt(`${prompt} (${c.label})`); setClarifications(null); }}
+                  style={{ background: 'rgba(100,255,218,0.1)', border: '1px solid rgba(100,255,218,0.3)', color: '#64ffda', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {stages.length > 0 && (
+          <div className="fade-in" style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.7rem', color: '#8892b0', display: 'flex', alignItems: 'center', gap: '4px' }}><ShieldCheck size={12} /> Pipeline</span>
+            {stages.map((st: any, i: number) => (
+              <span key={i} title={st.details || ''} style={{ fontSize: '0.68rem', color: st.status === 'success' ? '#10b981' : '#ef4444', border: '1px solid var(--border)', borderRadius: '12px', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                {st.name} {st.durationMs}ms
+              </span>
+            ))}
+            {elapsedMs !== null && (
+              <span style={{ fontSize: '0.68rem', color: '#8892b0', marginLeft: 'auto' }}>total {(elapsedMs / 1000).toFixed(1)}s</span>
+            )}
+          </div>
+        )}
 
         {sql && (
           <div className="fade-in" style={{ marginTop: '1.5rem' }}>

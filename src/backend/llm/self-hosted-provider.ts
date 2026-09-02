@@ -10,6 +10,8 @@
 
 import {
   LLMProvider,
+} from './llm-provider.js';
+import type {
   LLMConfig,
   LLMGenerateOptions,
   LLMResponse,

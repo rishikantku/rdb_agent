@@ -8,8 +8,21 @@
 // Designed for PostgreSQL. Oracle-compatible schema can be added later.
 // ============================================================================
 
-import { SchemaIntelligence, TableMetadata, Relationship, JoinPattern } from '../schema/schema-intelligence.js';
-import { SemanticLayer, BusinessTerm, AmbiguousTerm } from '../schema/semantic-layer.js';
+import {
+  SchemaIntelligence,
+} from '../schema/schema-intelligence.js';
+import type {
+  TableMetadata,
+  Relationship,
+  JoinPattern,
+} from '../schema/schema-intelligence.js';
+import {
+  SemanticLayer,
+} from '../schema/semantic-layer.js';
+import type {
+  BusinessTerm,
+  AmbiguousTerm,
+} from '../schema/semantic-layer.js';
 
 // ---------------------------------------------------------------------------
 // Register all tables, columns, relationships, and business definitions
