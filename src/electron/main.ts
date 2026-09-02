@@ -6,6 +6,44 @@ import mysql from 'mysql2/promise';
 import mssql from 'mssql';
 import oracledb from 'oracledb';
 import fs from 'fs';
+import * as dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
+
+// ---------------------------------------------------------------------------
+// AI Pipeline Services (lazy-initialized)
+// ---------------------------------------------------------------------------
+let aiServices: any = null;
+let aiInitPromise: Promise<void> | null = null;
+
+async function initAIServices(): Promise<void> {
+  if (aiServices) return;
+  if (aiInitPromise) { await aiInitPromise; return; }
+
+  aiInitPromise = (async () => {
+    try {
+      // Dynamic import to avoid blocking app startup
+      const { initializeBackend } = await import('../backend/init.js');
+      const databaseDir = path.join(app.getAppPath(), 'database');
+      // Fallback to workspace root if not in packaged app
+      const resolvedDir = fs.existsSync(databaseDir)
+        ? databaseDir
+        : path.join(process.cwd(), 'database');
+
+      aiServices = await initializeBackend({
+        databaseDir: resolvedDir,
+        auditDir: path.join(app.getPath('userData'), 'audit_logs'),
+      });
+      console.log('[AI] Pipeline initialized successfully');
+    } catch (err: any) {
+      console.error('[AI] Pipeline init failed:', err.message);
+      // Don't throw — the app should still work for direct SQL
+    }
+  })();
+
+  await aiInitPromise;
+}
 
 let mainWindow: BrowserWindow | null = null;
 try { oracledb.initOracleClient(); } catch (e) { oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT; }
@@ -81,6 +119,81 @@ const closeActiveConnection = async () => {
   } catch (e) { console.error('[DB] Close error:', e); }
   activeConnection = null;
 };
+
+// ---------------------------------------------------------------------------
+// AI Pipeline IPC Handlers
+// ---------------------------------------------------------------------------
+
+// Main AI query handler — Full NL → SQL pipeline
+ipcMain.handle('ai:query', async (_, question: string, sessionId?: string) => {
+  try {
+    await initAIServices();
+    if (!aiServices?.orchestrator) {
+      return { success: false, error: 'AI pipeline not initialized. Check LLM_BASE_URL in .env.' };
+    }
+
+    const result = await aiServices.orchestrator.processQuery({
+      question,
+      sessionId: sessionId || 'default',
+      userId: 'electron-user',
+    });
+
+    return result;
+  } catch (err: any) {
+    return { success: false, error: `AI query failed: ${err.message}` };
+  }
+});
+
+// AI health check
+ipcMain.handle('ai:health', async () => {
+  try {
+    await initAIServices();
+    if (!aiServices) {
+      return { initialized: false, error: 'AI services not available' };
+    }
+
+    const { healthCheck } = await import('../backend/init.js');
+    const health = await healthCheck(aiServices);
+    return { initialized: true, ...health };
+  } catch (err: any) {
+    return { initialized: false, error: err.message };
+  }
+});
+
+// AI audit log retrieval
+ipcMain.handle('ai:audit', async (_, limit?: number) => {
+  if (!aiServices?.auditLogger) return { entries: [], metrics: {} };
+  return {
+    entries: aiServices.auditLogger.getRecent(limit || 50),
+    metrics: aiServices.auditLogger.getMetrics(),
+  };
+});
+
+// Schema retrieval preview (debug tool)
+ipcMain.handle('ai:schema-preview', async (_, question: string) => {
+  try {
+    await initAIServices();
+    if (!aiServices?.schemaRetriever) return { error: 'Not initialized' };
+
+    const retrieval = aiServices.schemaRetriever.retrieve(question);
+    return {
+      tables: retrieval.retrievedTableNames,
+      terms: retrieval.semanticResolution.resolvedTerms.map((t: any) => ({
+        term: t.originalTerm,
+        definition: t.businessTerm.description,
+      })),
+      rules: retrieval.semanticResolution.businessRules,
+      ambiguous: retrieval.semanticResolution.ambiguousTerms,
+      schemaPrompt: retrieval.schemaPrompt.substring(0, 2000), // Truncated for display
+    };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Existing IPC Handlers (unchanged)
+// ---------------------------------------------------------------------------
 
 ipcMain.handle('db:get-configs', async () => getConnections());
 ipcMain.handle('db:save-config', async (_, config: any) => {
@@ -207,5 +320,15 @@ function createWindow() {
   mainWindow = new BrowserWindow({ width: 1200, height: 800, webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true }, titleBarStyle: 'hiddenInset' });
   if (process.env.VITE_DEV_SERVER_URL) mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL); else mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
 }
-app.whenReady().then(() => { ensureSampleDatabase(); createWindow(); });
+
+app.whenReady().then(() => {
+  ensureSampleDatabase();
+  createWindow();
+
+  // Initialize AI services in background (non-blocking)
+  if (process.env.LLM_BASE_URL && process.env.DATABASE_URL) {
+    initAIServices().catch(err => console.warn('[AI] Background init failed:', err.message));
+  }
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+

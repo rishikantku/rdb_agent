@@ -1,0 +1,52 @@
+{
+  "examples": [
+    {
+      "question": "How many active employees are there?",
+      "sql": "SELECT COUNT(*) AS active_employee_count FROM employees WHERE status = 'ACTIVE';",
+      "concepts": ["active employee", "count"],
+      "complexity": "LOW"
+    },
+    {
+      "question": "Show all branches in Jharkhand",
+      "sql": "SELECT b.branch_name, b.branch_code, b.city, z.zone_name FROM branches b JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id WHERE s.state_name = 'Jharkhand' AND b.is_active = TRUE ORDER BY b.branch_name;",
+      "concepts": ["state filter", "branch listing", "join path to state"],
+      "complexity": "LOW"
+    },
+    {
+      "question": "What is the average salary by department?",
+      "sql": "SELECT d.dept_name, ROUND(AVG(e.salary), 2) AS avg_salary, COUNT(e.employee_id) AS employee_count FROM employees e JOIN departments d ON e.department_id = d.department_id WHERE e.status = 'ACTIVE' GROUP BY d.dept_name ORDER BY avg_salary DESC;",
+      "concepts": ["average salary", "department grouping", "active employees"],
+      "complexity": "LOW"
+    },
+    {
+      "question": "Show loan NPA ratio by branch",
+      "sql": "SELECT b.branch_name, SUM(l.outstanding_amount) FILTER (WHERE l.status = 'NPA') AS npa_amount, SUM(l.outstanding_amount) FILTER (WHERE l.status IN ('ACTIVE','NPA')) AS total_outstanding, CASE WHEN SUM(l.outstanding_amount) FILTER (WHERE l.status IN ('ACTIVE','NPA')) > 0 THEN ROUND(SUM(l.outstanding_amount) FILTER (WHERE l.status = 'NPA') * 100.0 / SUM(l.outstanding_amount) FILTER (WHERE l.status IN ('ACTIVE','NPA')), 2) ELSE 0 END AS npa_ratio FROM loans l JOIN branches b ON l.branch_id = b.branch_id GROUP BY b.branch_id, b.branch_name ORDER BY npa_ratio DESC LIMIT 20;",
+      "concepts": ["NPA ratio", "conditional aggregation", "branch grouping"],
+      "complexity": "MEDIUM"
+    },
+    {
+      "question": "Which employees joined in FY2023-24?",
+      "sql": "SELECT e.employee_number, e.first_name || ' ' || e.last_name AS full_name, e.designation, e.join_date, d.dept_name, b.branch_name FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN branches b ON e.branch_id = b.branch_id WHERE e.join_date >= '2023-04-01' AND e.join_date < '2024-04-01' ORDER BY e.join_date;",
+      "concepts": ["financial year filter", "date range", "FY2023-24"],
+      "complexity": "MEDIUM"
+    },
+    {
+      "question": "Show customer count by segment and region",
+      "sql": "SELECT r.region_name, cs.segment_name, COUNT(c.customer_id) AS customer_count FROM customers c JOIN customer_segments cs ON c.segment_id = cs.segment_id JOIN branches b ON c.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id WHERE c.status = 'ACTIVE' GROUP BY r.region_name, cs.segment_name ORDER BY r.region_name, customer_count DESC;",
+      "concepts": ["customer segmentation", "regional grouping", "multi-level aggregation"],
+      "complexity": "MEDIUM"
+    },
+    {
+      "question": "What is the total loan portfolio by state?",
+      "sql": "SELECT s.state_name, COUNT(l.loan_id) AS total_loans, SUM(l.outstanding_amount) FILTER (WHERE l.status = 'ACTIVE') AS active_portfolio, SUM(l.outstanding_amount) FILTER (WHERE l.status = 'NPA') AS npa_portfolio FROM loans l JOIN branches b ON l.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id GROUP BY s.state_name ORDER BY active_portfolio DESC;",
+      "concepts": ["loan portfolio", "state grouping", "conditional aggregation", "NPA vs active"],
+      "complexity": "MEDIUM"
+    },
+    {
+      "question": "Find the highest-paid employee in each department",
+      "sql": "SELECT dept_name, employee_number, full_name, designation, salary FROM (SELECT d.dept_name, e.employee_number, e.first_name || ' ' || e.last_name AS full_name, e.designation, e.salary, ROW_NUMBER() OVER (PARTITION BY d.department_id ORDER BY e.salary DESC) AS rn FROM employees e JOIN departments d ON e.department_id = d.department_id WHERE e.status = 'ACTIVE') sub WHERE rn = 1 ORDER BY salary DESC;",
+      "concepts": ["window function", "ROW_NUMBER", "department partition", "ranking"],
+      "complexity": "MEDIUM"
+    }
+  ]
+}

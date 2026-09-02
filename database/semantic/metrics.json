@@ -1,0 +1,118 @@
+{
+  "metrics": {
+    "employee_count": {
+      "name": "Employee Count / Employee Strength",
+      "expression": "COUNT(DISTINCT e.employee_id)",
+      "filter": "e.status = 'ACTIVE'",
+      "entity": "employee",
+      "aggregation": "COUNT"
+    },
+    "average_salary": {
+      "name": "Average Salary",
+      "expression": "ROUND(AVG(e.salary), 2)",
+      "filter": "e.status = 'ACTIVE'",
+      "entity": "employee",
+      "aggregation": "AVG"
+    },
+    "total_salary_cost": {
+      "name": "Total Salary Cost",
+      "expression": "SUM(e.salary)",
+      "filter": "e.status = 'ACTIVE'",
+      "entity": "employee",
+      "aggregation": "SUM"
+    },
+    "attrition_count": {
+      "name": "Attrition Count",
+      "expression": "COUNT(DISTINCT e.employee_id)",
+      "filter": "e.status IN ('RESIGNED', 'TERMINATED')",
+      "entity": "employee",
+      "aggregation": "COUNT"
+    },
+    "avg_performance_score": {
+      "name": "Average Performance Score",
+      "expression": "ROUND(AVG(ep.performance_score), 2)",
+      "entity": "employee_performance",
+      "aggregation": "AVG"
+    },
+    "avg_productivity_score": {
+      "name": "Average Productivity Score",
+      "expression": "ROUND(AVG(ep.productivity_score), 2)",
+      "entity": "employee_performance",
+      "aggregation": "AVG"
+    },
+    "loan_portfolio": {
+      "name": "Loan Portfolio (Outstanding)",
+      "expression": "SUM(l.outstanding_amount)",
+      "filter": "l.status = 'ACTIVE'",
+      "entity": "loan",
+      "aggregation": "SUM"
+    },
+    "total_sanctioned": {
+      "name": "Total Loans Sanctioned",
+      "expression": "SUM(l.sanction_amount)",
+      "entity": "loan",
+      "aggregation": "SUM"
+    },
+    "npa_count": {
+      "name": "NPA Loan Count",
+      "expression": "COUNT(l.loan_id)",
+      "filter": "l.status = 'NPA'",
+      "entity": "loan",
+      "aggregation": "COUNT"
+    },
+    "npa_ratio": {
+      "name": "NPA Ratio (%)",
+      "expression": "ROUND(SUM(l.outstanding_amount) FILTER (WHERE l.status = 'NPA') * 100.0 / NULLIF(SUM(l.outstanding_amount) FILTER (WHERE l.status IN ('ACTIVE','NPA')), 0), 2)",
+      "entity": "loan",
+      "aggregation": "RATIO"
+    },
+    "total_deposits": {
+      "name": "Total Deposits",
+      "expression": "SUM(a.current_balance)",
+      "filter": "a.status = 'ACTIVE'",
+      "entity": "account",
+      "aggregation": "SUM"
+    },
+    "transaction_count": {
+      "name": "Transaction Count",
+      "expression": "COUNT(t.transaction_id)",
+      "filter": "t.status = 'COMPLETED'",
+      "entity": "transaction",
+      "aggregation": "COUNT"
+    },
+    "transaction_volume": {
+      "name": "Transaction Volume (Amount)",
+      "expression": "SUM(t.amount)",
+      "filter": "t.status = 'COMPLETED'",
+      "entity": "transaction",
+      "aggregation": "SUM"
+    },
+    "avg_transaction_value": {
+      "name": "Average Transaction Value",
+      "expression": "ROUND(AVG(t.amount), 2)",
+      "filter": "t.status = 'COMPLETED'",
+      "entity": "transaction",
+      "aggregation": "AVG"
+    },
+    "customer_count": {
+      "name": "Customer Count",
+      "expression": "COUNT(DISTINCT c.customer_id)",
+      "filter": "c.status = 'ACTIVE'",
+      "entity": "customer",
+      "aggregation": "COUNT"
+    },
+    "complaint_count": {
+      "name": "Complaint Count",
+      "expression": "COUNT(cc.complaint_id)",
+      "entity": "complaint",
+      "aggregation": "COUNT"
+    },
+    "unresolved_complaints": {
+      "name": "Unresolved Complaints",
+      "expression": "COUNT(cc.complaint_id)",
+      "filter": "cc.resolution_status NOT IN ('RESOLVED', 'CLOSED')",
+      "entity": "complaint",
+      "aggregation": "COUNT"
+    }
+  }
+}

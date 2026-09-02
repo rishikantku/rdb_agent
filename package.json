@@ -12,9 +12,10 @@
     "seed": "tsx src/backend/db/seed.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
-    "electron": "^41.1.1",
+    "dotenv": "^17.4.2",
+    "electron": "^41.10.7",
     "framer-motion": "^12.38.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",

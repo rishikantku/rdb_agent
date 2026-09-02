@@ -1,0 +1,80 @@
+{
+  "rules": [
+    {
+      "id": "BR001",
+      "name": "Indian Financial Year",
+      "description": "Financial year starts April 1 and ends March 31. FY2023-24 = April 1, 2023 to March 31, 2024.",
+      "sql_pattern": "CASE WHEN EXTRACT(MONTH FROM date_column) >= 4 THEN EXTRACT(YEAR FROM date_column) ELSE EXTRACT(YEAR FROM date_column) - 1 END"
+    },
+    {
+      "id": "BR002",
+      "name": "Quarter Definition",
+      "description": "Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar. Stored in employee_performance.quarter and financial_year."
+    },
+    {
+      "id": "BR003",
+      "name": "Active Employee Default",
+      "description": "When counting or listing employees without explicit status filter, default to status = 'ACTIVE'."
+    },
+    {
+      "id": "BR004",
+      "name": "Salary Means Current Salary",
+      "description": "When referring to 'salary' without qualification, use employees.salary (current monthly salary)."
+    },
+    {
+      "id": "BR005",
+      "name": "Excluding Contractual",
+      "description": "'Excluding contractual employees' means employment_type != 'CONTRACT'."
+    },
+    {
+      "id": "BR006",
+      "name": "Branch Location Join Path",
+      "description": "To get state/region for a branch: branches → zones → regions → states."
+    },
+    {
+      "id": "BR007",
+      "name": "Indian Currency Formatting",
+      "description": "Large amounts should be expressed in lakhs (1,00,000) or crores (1,00,00,000) when presenting to executives."
+    },
+    {
+      "id": "BR008",
+      "name": "NPA Classification",
+      "description": "Loans with status = 'NPA' are Non-Performing Assets. risk_category values: STANDARD → SMA1 → SMA2 → SUBSTANDARD → DOUBTFUL → LOSS."
+    },
+    {
+      "id": "BR009",
+      "name": "Employee Productivity Metric",
+      "description": "Employee productivity is measured by employee_performance.productivity_score (0-10 scale). Use this field for any question about 'productivity'."
+    },
+    {
+      "id": "BR010",
+      "name": "Attrition Calculation",
+      "description": "Attrition = employees whose status changed to RESIGNED or TERMINATED during the period. Use exit_date to filter by period."
+    },
+    {
+      "id": "BR011",
+      "name": "Joined After Date",
+      "description": "'Joined after April 2020' means employees.join_date > '2020-04-01'. 'Joined after 2020' means join_date >= '2020-01-01'."
+    },
+    {
+      "id": "BR012",
+      "name": "Loan Portfolio",
+      "description": "Loan portfolio = SUM(outstanding_amount) WHERE status = 'ACTIVE'. For growth calculations, compare across fiscal years."
+    },
+    {
+      "id": "BR013",
+      "name": "High Value Customer",
+      "description": "Customer with total_balance > 25 lakhs OR annual_income > 50 lakhs OR segment = 'HNI'."
+    },
+    {
+      "id": "BR014",
+      "name": "Year-over-Year Comparison",
+      "description": "YoY = ((current_period_value - previous_period_value) / previous_period_value) * 100. Use same period definitions (FY or calendar year)."
+    },
+    {
+      "id": "BR015",
+      "name": "Consecutive Quarter Detection",
+      "description": "To detect trends across consecutive quarters, use LAG/LEAD window functions partitioned by entity (branch/employee) and ordered by financial_year, quarter."
+    }
+  ]
+}

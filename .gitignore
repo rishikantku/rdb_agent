@@ -22,3 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets — RunPod / Neon credentials
+.env
+.env.*
+!.env.example
+
+# Generated at runtime by AuditLogger
+audit_logs/

@@ -1,0 +1,127 @@
+{
+  "glossary": {
+    "active_employee": {
+      "term": "Active Employee",
+      "definition": "An employee whose status = 'ACTIVE' in the employees table.",
+      "sql_condition": "employees.status = 'ACTIVE'",
+      "related_tables": ["employees"]
+    },
+    "contractual_employee": {
+      "term": "Contractual Employee",
+      "definition": "An employee whose employment_type = 'CONTRACT'.",
+      "sql_condition": "employees.employment_type = 'CONTRACT'",
+      "related_tables": ["employees"]
+    },
+    "permanent_employee": {
+      "term": "Permanent Employee",
+      "definition": "An employee whose employment_type = 'PERMANENT'.",
+      "sql_condition": "employees.employment_type = 'PERMANENT'",
+      "related_tables": ["employees"]
+    },
+    "employee_strength": {
+      "term": "Employee Strength / Headcount",
+      "definition": "Count of active employees associated with a branch, department, or region.",
+      "sql_expression": "COUNT(DISTINCT employees.employee_id) WHERE employees.status = 'ACTIVE'",
+      "related_tables": ["employees", "branches"]
+    },
+    "employee_productivity": {
+      "term": "Employee Productivity",
+      "definition": "The productivity_score field in employee_performance. Quarterly metric scored 0-10.",
+      "sql_expression": "employee_performance.productivity_score",
+      "related_tables": ["employee_performance", "employees"]
+    },
+    "employee_performance": {
+      "term": "Employee Performance",
+      "definition": "Composite of performance_score, productivity_score, sales_score, customer_service_score, attendance_score. Each scored 0-10.",
+      "sql_expression": "(performance_score + productivity_score + sales_score + customer_service_score + attendance_score) / 5.0",
+      "related_tables": ["employee_performance"]
+    },
+    "attrition": {
+      "term": "Attrition",
+      "definition": "Employees who left the bank. Defined as employees with status IN ('RESIGNED', 'TERMINATED') and an exit_date in the relevant period.",
+      "sql_condition": "employees.status IN ('RESIGNED', 'TERMINATED') AND employees.exit_date IS NOT NULL",
+      "related_tables": ["employees"]
+    },
+    "high_value_customer": {
+      "term": "High Value Customer",
+      "definition": "A customer whose total account balance exceeds ₹25,00,000 (25 lakhs) OR whose annual_income exceeds ₹50,00,000 (50 lakhs) OR whose segment is 'HNI'.",
+      "sql_condition": "customers.segment_id = (SELECT segment_id FROM customer_segments WHERE segment_code = 'HNI') OR customers.annual_income > 5000000 OR (SELECT SUM(current_balance) FROM accounts WHERE accounts.customer_id = customers.customer_id AND accounts.status = 'ACTIVE') > 2500000",
+      "related_tables": ["customers", "accounts", "customer_segments"]
+    },
+    "loan_portfolio": {
+      "term": "Loan Portfolio",
+      "definition": "Total outstanding_amount of active loans for a branch or region. SUM(loans.outstanding_amount) WHERE loans.status = 'ACTIVE'.",
+      "sql_expression": "SUM(loans.outstanding_amount) FILTER (WHERE loans.status = 'ACTIVE')",
+      "related_tables": ["loans", "branches"]
+    },
+    "loan_growth": {
+      "term": "Loan Growth",
+      "definition": "Year-over-year percentage change in total loan portfolio (outstanding amount). Calculated as ((current_year_portfolio - previous_year_portfolio) / previous_year_portfolio) * 100.",
+      "related_tables": ["loans", "branches"]
+    },
+    "npa": {
+      "term": "NPA (Non-Performing Asset)",
+      "definition": "A loan whose status = 'NPA'. The npa_ratio is the percentage of NPA outstanding vs total outstanding.",
+      "sql_condition": "loans.status = 'NPA'",
+      "related_tables": ["loans"]
+    },
+    "npa_ratio": {
+      "term": "NPA Ratio",
+      "definition": "SUM(outstanding WHERE status='NPA') / SUM(outstanding WHERE status IN ('ACTIVE','NPA')) * 100",
+      "related_tables": ["loans"]
+    },
+    "financial_year": {
+      "term": "Financial Year / Fiscal Year",
+      "definition": "Indian financial year runs from April 1 to March 31. FY2023-24 means April 1, 2023 to March 31, 2024. To extract FY from a date: CASE WHEN EXTRACT(MONTH FROM date) >= 4 THEN EXTRACT(YEAR FROM date) ELSE EXTRACT(YEAR FROM date) - 1 END.",
+      "examples": {
+        "FY2023-24": "April 1, 2023 to March 31, 2024",
+        "FY2024-25": "April 1, 2024 to March 31, 2025",
+        "FY2025-26": "April 1, 2025 to March 31, 2026"
+      }
+    },
+    "quarter": {
+      "term": "Quarter",
+      "definition": "Q1 = Apr-Jun, Q2 = Jul-Sep, Q3 = Oct-Dec, Q4 = Jan-Mar (of the next calendar year). Stored in employee_performance.quarter.",
+      "related_tables": ["employee_performance"]
+    },
+    "branch_employee_metrics": {
+      "term": "Branch Employee Metrics",
+      "definition": "Aggregated employee statistics per branch. Available via vw_branch_employee_metrics view.",
+      "related_tables": ["employees", "branches"],
+      "related_views": ["vw_branch_employee_metrics"]
+    },
+    "salary_cost": {
+      "term": "Salary Cost / Salary Expense",
+      "definition": "SUM(salary) of active employees at a branch or department.",
+      "sql_expression": "SUM(employees.salary) WHERE employees.status = 'ACTIVE'",
+      "related_tables": ["employees"]
+    },
+    "average_salary": {
+      "term": "Average Salary",
+      "definition": "AVG(salary) of active employees.",
+      "sql_expression": "AVG(employees.salary) WHERE employees.status = 'ACTIVE'",
+      "related_tables": ["employees"]
+    },
+    "department_average": {
+      "term": "Department Average",
+      "definition": "Average metric (salary, performance, etc.) calculated across all employees in a department.",
+      "related_tables": ["employees", "departments", "employee_performance"]
+    },
+    "region": {
+      "term": "Region",
+      "definition": "Administrative region. Join path: branches → zones → regions → states.",
+      "related_tables": ["regions", "zones", "branches", "states"]
+    },
+    "transaction_frequency": {
+      "term": "Transaction Frequency",
+      "definition": "Count of transactions per customer/account in a given period.",
+      "sql_expression": "COUNT(transactions.transaction_id)",
+      "related_tables": ["transactions", "accounts"]
+    },
+    "relationship_value": {
+      "term": "Total Relationship Value",
+      "definition": "Sum of all account balances + outstanding loan amounts for a customer.",
+      "related_tables": ["accounts", "loans", "customers"]
+    }
+  }
+}

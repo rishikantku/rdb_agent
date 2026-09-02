@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "employee": {
+      "primary_table": "employees",
+      "key_column": "employee_id",
+      "display_columns": ["employee_number", "first_name", "last_name", "designation", "department_id", "branch_id", "salary", "status"],
+      "related_tables": ["departments", "branches", "employee_performance", "employee_attendance", "employee_department_history"],
+      "join_paths": {
+        "department": "employees.department_id = departments.department_id",
+        "branch": "employees.branch_id = branches.branch_id",
+        "zone": "branches.zone_id = zones.zone_id",
+        "region": "zones.region_id = regions.region_id",
+        "state": "regions.state_id = states.state_id",
+        "performance": "employees.employee_id = employee_performance.employee_id",
+        "attendance": "employees.employee_id = employee_attendance.employee_id",
+        "dept_history": "employees.employee_id = employee_department_history.employee_id",
+        "manager": "employees.manager_id = employees.employee_id (self-join)"
+      }
+    },
+    "customer": {
+      "primary_table": "customers",
+      "key_column": "customer_id",
+      "display_columns": ["customer_number", "first_name", "last_name", "customer_type", "segment_id", "risk_category", "annual_income", "branch_id", "status"],
+      "related_tables": ["customer_segments", "accounts", "loans", "customer_products", "customer_complaints", "customer_interactions", "customer_addresses", "customer_relationships", "branches"],
+      "join_paths": {
+        "segment": "customers.segment_id = customer_segments.segment_id",
+        "accounts": "customers.customer_id = accounts.customer_id",
+        "loans": "customers.customer_id = loans.customer_id",
+        "products": "customers.customer_id = customer_products.customer_id",
+        "complaints": "customers.customer_id = customer_complaints.customer_id",
+        "interactions": "customers.customer_id = customer_interactions.customer_id",
+        "branch": "customers.branch_id = branches.branch_id"
+      }
+    },
+    "branch": {
+      "primary_table": "branches",
+      "key_column": "branch_id",
+      "display_columns": ["branch_name", "branch_code", "ifsc_code", "zone_id", "city", "branch_type", "tier"],
+      "related_tables": ["zones", "regions", "states", "employees", "accounts", "loans", "customers"],
+      "join_paths": {
+        "zone": "branches.zone_id = zones.zone_id",
+        "region": "zones.region_id = regions.region_id",
+        "state": "regions.state_id = states.state_id",
+        "employees": "employees.branch_id = branches.branch_id",
+        "accounts": "accounts.branch_id = branches.branch_id",
+        "loans": "loans.branch_id = branches.branch_id"
+      }
+    },
+    "account": {
+      "primary_table": "accounts",
+      "key_column": "account_id",
+      "display_columns": ["account_number", "customer_id", "account_type_id", "branch_id", "status", "current_balance"],
+      "related_tables": ["account_types", "customers", "branches", "transactions", "account_balances", "account_holders"],
+      "join_paths": {
+        "type": "accounts.account_type_id = account_types.account_type_id",
+        "customer": "accounts.customer_id = customers.customer_id",
+        "branch": "accounts.branch_id = branches.branch_id",
+        "transactions": "transactions.account_id = accounts.account_id",
+        "balances": "account_balances.account_id = accounts.account_id"
+      }
+    },
+    "loan": {
+      "primary_table": "loans",
+      "key_column": "loan_id",
+      "display_columns": ["loan_number", "customer_id", "branch_id", "loan_type_id", "sanction_amount", "outstanding_amount", "interest_rate", "status", "risk_category"],
+      "related_tables": ["loan_types", "customers", "branches", "loan_payments", "loan_status_history"],
+      "join_paths": {
+        "type": "loans.loan_type_id = loan_types.loan_type_id",
+        "customer": "loans.customer_id = customers.customer_id",
+        "branch": "loans.branch_id = branches.branch_id",
+        "payments": "loan_payments.loan_id = loans.loan_id",
+        "status_history": "loan_status_history.loan_id = loans.loan_id"
+      }
+    },
+    "transaction": {
+      "primary_table": "transactions",
+      "key_column": "transaction_id",
+      "display_columns": ["account_id", "txn_type_id", "transaction_date", "amount", "debit_credit", "channel", "status"],
+      "related_tables": ["transaction_types", "accounts", "branches"],
+      "join_paths": {
+        "type": "transactions.txn_type_id = transaction_types.txn_type_id",
+        "account": "transactions.account_id = accounts.account_id",
+        "branch": "transactions.branch_id = branches.branch_id"
+      }
+    }
+  }
+}

@@ -1,0 +1,405 @@
+{
+  "database": "neondb",
+  "dialect": "postgresql",
+  "schema": "public",
+  "generated_at": "2026-09-02",
+  "tables": {
+    "states": {
+      "description": "Indian states for geographic hierarchy",
+      "columns": {
+        "state_id": {"type": "SERIAL", "pk": true},
+        "state_name": {"type": "VARCHAR(100)", "unique": true, "nullable": false},
+        "state_code": {"type": "VARCHAR(10)", "unique": true, "nullable": false},
+        "capital": {"type": "VARCHAR(100)"},
+        "geographic_zone": {"type": "VARCHAR(30)", "check": "NORTH|SOUTH|EAST|WEST|CENTRAL|NORTHEAST"}
+      }
+    },
+    "regions": {
+      "description": "Administrative banking regions, each in one state",
+      "columns": {
+        "region_id": {"type": "SERIAL", "pk": true},
+        "region_name": {"type": "VARCHAR(100)", "unique": true},
+        "region_code": {"type": "VARCHAR(10)", "unique": true},
+        "state_id": {"type": "INTEGER", "fk": "states.state_id", "nullable": false},
+        "regional_head": {"type": "VARCHAR(100)"}
+      }
+    },
+    "zones": {
+      "description": "Banking zones within regions, typically city-level",
+      "columns": {
+        "zone_id": {"type": "SERIAL", "pk": true},
+        "zone_name": {"type": "VARCHAR(100)"},
+        "zone_code": {"type": "VARCHAR(10)", "unique": true},
+        "region_id": {"type": "INTEGER", "fk": "regions.region_id", "nullable": false},
+        "zonal_head": {"type": "VARCHAR(100)"}
+      }
+    },
+    "branches": {
+      "description": "Bank branches. Join path to state: branches → zones → regions → states",
+      "columns": {
+        "branch_id": {"type": "SERIAL", "pk": true},
+        "branch_name": {"type": "VARCHAR(200)", "nullable": false},
+        "branch_code": {"type": "VARCHAR(20)", "unique": true},
+        "ifsc_code": {"type": "VARCHAR(20)", "unique": true},
+        "zone_id": {"type": "INTEGER", "fk": "zones.zone_id", "nullable": false},
+        "address": {"type": "TEXT"},
+        "city": {"type": "VARCHAR(100)"},
+        "pincode": {"type": "VARCHAR(10)"},
+        "branch_type": {"type": "VARCHAR(30)", "check": "MAIN|BRANCH|EXTENSION_COUNTER|SATELLITE|DIGITAL"},
+        "established_date": {"type": "DATE"},
+        "is_active": {"type": "BOOLEAN", "default": true},
+        "tier": {"type": "VARCHAR(10)", "check": "METRO|URBAN|SEMI_URBAN|RURAL"}
+      }
+    },
+    "departments": {
+      "description": "Organizational departments (IT, HR, Finance, etc.)",
+      "columns": {
+        "department_id": {"type": "SERIAL", "pk": true},
+        "dept_name": {"type": "VARCHAR(100)", "unique": true},
+        "dept_code": {"type": "VARCHAR(20)", "unique": true},
+        "parent_department_id": {"type": "INTEGER", "fk": "departments.department_id"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "employees": {
+      "description": "Bank employees with salary, designation, status. Self-referential manager_id.",
+      "columns": {
+        "employee_id": {"type": "SERIAL", "pk": true},
+        "employee_number": {"type": "VARCHAR(20)", "unique": true},
+        "first_name": {"type": "VARCHAR(100)", "nullable": false},
+        "last_name": {"type": "VARCHAR(100)", "nullable": false},
+        "gender": {"type": "VARCHAR(5)", "check": "M|F|O"},
+        "date_of_birth": {"type": "DATE"},
+        "join_date": {"type": "DATE", "nullable": false},
+        "exit_date": {"type": "DATE", "note": "Set when employee leaves; used for attrition calculation"},
+        "employment_type": {"type": "VARCHAR(20)", "check": "PERMANENT|CONTRACT|TEMPORARY|PROBATION"},
+        "designation": {"type": "VARCHAR(50)", "nullable": false},
+        "department_id": {"type": "INTEGER", "fk": "departments.department_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "manager_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "salary": {"type": "NUMERIC(12,2)", "note": "Monthly salary"},
+        "email": {"type": "VARCHAR(200)"},
+        "phone": {"type": "VARCHAR(20)"},
+        "status": {"type": "VARCHAR(20)", "check": "ACTIVE|INACTIVE|RETIRED|RESIGNED|TERMINATED"}
+      }
+    },
+    "employee_department_history": {
+      "description": "Historical record of employee department/branch changes",
+      "columns": {
+        "history_id": {"type": "SERIAL", "pk": true},
+        "employee_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "department_id": {"type": "INTEGER", "fk": "departments.department_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "designation": {"type": "VARCHAR(50)"},
+        "start_date": {"type": "DATE"},
+        "end_date": {"type": "DATE", "note": "NULL means current assignment"},
+        "reason": {"type": "VARCHAR(50)", "check": "JOINING|PROMOTION|TRANSFER|REORGANIZATION|REQUEST"}
+      }
+    },
+    "employee_performance": {
+      "description": "Quarterly performance scores per employee. Key metric table for productivity analysis.",
+      "columns": {
+        "performance_id": {"type": "SERIAL", "pk": true},
+        "employee_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "performance_date": {"type": "DATE"},
+        "financial_year": {"type": "INTEGER", "note": "FY start year, e.g. 2024 = FY2024-25"},
+        "quarter": {"type": "VARCHAR(5)", "check": "Q1|Q2|Q3|Q4", "note": "Q1=Apr-Jun, Q2=Jul-Sep, Q3=Oct-Dec, Q4=Jan-Mar"},
+        "performance_score": {"type": "NUMERIC(4,2)", "range": "0-10"},
+        "productivity_score": {"type": "NUMERIC(4,2)", "range": "0-10", "note": "PRIMARY productivity metric"},
+        "sales_score": {"type": "NUMERIC(4,2)", "range": "0-10"},
+        "customer_service_score": {"type": "NUMERIC(4,2)", "range": "0-10"},
+        "attendance_score": {"type": "NUMERIC(4,2)", "range": "0-10"}
+      },
+      "unique_constraints": ["(employee_id, financial_year, quarter)"]
+    },
+    "employee_attendance": {
+      "description": "Monthly attendance records",
+      "columns": {
+        "attendance_id": {"type": "SERIAL", "pk": true},
+        "employee_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "month_year": {"type": "DATE", "note": "First of month"},
+        "working_days": {"type": "INTEGER"},
+        "days_present": {"type": "INTEGER"},
+        "days_absent": {"type": "INTEGER"},
+        "leaves_taken": {"type": "INTEGER"},
+        "late_arrivals": {"type": "INTEGER"}
+      }
+    },
+    "customer_segments": {
+      "description": "Customer segmentation tiers: Mass, Preferred, Premium, HNI, Corporate",
+      "columns": {
+        "segment_id": {"type": "SERIAL", "pk": true},
+        "segment_name": {"type": "VARCHAR(50)", "unique": true},
+        "segment_code": {"type": "VARCHAR(10)", "unique": true},
+        "min_balance": {"type": "NUMERIC(15,2)"},
+        "min_income": {"type": "NUMERIC(15,2)"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "customers": {
+      "description": "Bank customers (Individual, Corporate, SME, Government, Institutional)",
+      "columns": {
+        "customer_id": {"type": "SERIAL", "pk": true},
+        "customer_number": {"type": "VARCHAR(20)", "unique": true},
+        "first_name": {"type": "VARCHAR(100)", "nullable": false},
+        "last_name": {"type": "VARCHAR(100)", "nullable": false},
+        "date_of_birth": {"type": "DATE"},
+        "gender": {"type": "VARCHAR(5)"},
+        "customer_type": {"type": "VARCHAR(20)", "check": "INDIVIDUAL|CORPORATE|SME|GOVERNMENT|INSTITUTIONAL"},
+        "segment_id": {"type": "INTEGER", "fk": "customer_segments.segment_id"},
+        "risk_category": {"type": "VARCHAR(10)", "check": "LOW|MEDIUM|HIGH|VERY_HIGH"},
+        "occupation": {"type": "VARCHAR(100)"},
+        "annual_income": {"type": "NUMERIC(15,2)"},
+        "registration_date": {"type": "DATE"},
+        "status": {"type": "VARCHAR(20)", "check": "ACTIVE|INACTIVE|CLOSED|SUSPENDED|DECEASED"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "created_at": {"type": "TIMESTAMP"}
+      }
+    },
+    "customer_addresses": {
+      "description": "Customer address records (permanent, current, office, registered)",
+      "columns": {
+        "address_id": {"type": "SERIAL", "pk": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "address_type": {"type": "VARCHAR(20)"},
+        "address_line1": {"type": "TEXT"},
+        "address_line2": {"type": "TEXT"},
+        "city": {"type": "VARCHAR(100)"},
+        "state": {"type": "VARCHAR(100)"},
+        "pincode": {"type": "VARCHAR(10)"},
+        "is_primary": {"type": "BOOLEAN"}
+      }
+    },
+    "customer_relationships": {
+      "description": "Relationships between customers (joint, guardian, nominee, spouse, etc.)",
+      "columns": {
+        "relationship_id": {"type": "SERIAL", "pk": true},
+        "primary_customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "related_customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "relationship_type": {"type": "VARCHAR(30)"},
+        "start_date": {"type": "DATE"},
+        "end_date": {"type": "DATE"},
+        "status": {"type": "VARCHAR(20)"}
+      }
+    },
+    "account_types": {
+      "description": "Account type definitions (Savings, Current, FD, RD, etc.)",
+      "columns": {
+        "account_type_id": {"type": "SERIAL", "pk": true},
+        "type_name": {"type": "VARCHAR(50)", "unique": true},
+        "type_code": {"type": "VARCHAR(10)", "unique": true},
+        "category": {"type": "VARCHAR(30)", "check": "DEPOSIT|LENDING|INVESTMENT"},
+        "interest_rate": {"type": "NUMERIC(5,2)"},
+        "min_balance": {"type": "NUMERIC(12,2)"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "accounts": {
+      "description": "Customer bank accounts",
+      "columns": {
+        "account_id": {"type": "SERIAL", "pk": true},
+        "account_number": {"type": "VARCHAR(20)", "unique": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "account_type_id": {"type": "INTEGER", "fk": "account_types.account_type_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "opening_date": {"type": "DATE"},
+        "closing_date": {"type": "DATE"},
+        "status": {"type": "VARCHAR(20)", "check": "ACTIVE|DORMANT|CLOSED|FROZEN|SUSPENDED"},
+        "currency": {"type": "VARCHAR(5)", "default": "INR"},
+        "credit_limit": {"type": "NUMERIC(15,2)"},
+        "interest_rate": {"type": "NUMERIC(5,2)"},
+        "current_balance": {"type": "NUMERIC(15,2)"}
+      }
+    },
+    "account_balances": {
+      "description": "Historical monthly balance snapshots for time-series analysis",
+      "columns": {
+        "balance_id": {"type": "SERIAL", "pk": true},
+        "account_id": {"type": "INTEGER", "fk": "accounts.account_id"},
+        "balance_date": {"type": "DATE", "note": "First of month"},
+        "opening_balance": {"type": "NUMERIC(15,2)"},
+        "closing_balance": {"type": "NUMERIC(15,2)"},
+        "total_credits": {"type": "NUMERIC(15,2)"},
+        "total_debits": {"type": "NUMERIC(15,2)"}
+      }
+    },
+    "account_holders": {
+      "description": "Account holder mapping (primary, joint, nominee, authorized)",
+      "columns": {
+        "holder_id": {"type": "SERIAL", "pk": true},
+        "account_id": {"type": "INTEGER", "fk": "accounts.account_id"},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "holder_type": {"type": "VARCHAR(20)", "check": "PRIMARY|JOINT|NOMINEE|AUTHORIZED"},
+        "start_date": {"type": "DATE"},
+        "end_date": {"type": "DATE"}
+      }
+    },
+    "transaction_types": {
+      "description": "Transaction type lookup (deposit, withdrawal, transfer, etc.)",
+      "columns": {
+        "txn_type_id": {"type": "SERIAL", "pk": true},
+        "type_name": {"type": "VARCHAR(50)", "unique": true},
+        "type_code": {"type": "VARCHAR(10)", "unique": true},
+        "category": {"type": "VARCHAR(20)", "check": "DEPOSIT|WITHDRAWAL|TRANSFER|FEE|INTEREST|LOAN"}
+      }
+    },
+    "transactions": {
+      "description": "Financial transactions on accounts",
+      "columns": {
+        "transaction_id": {"type": "SERIAL", "pk": true},
+        "account_id": {"type": "INTEGER", "fk": "accounts.account_id"},
+        "txn_type_id": {"type": "INTEGER", "fk": "transaction_types.txn_type_id"},
+        "transaction_date": {"type": "TIMESTAMP"},
+        "amount": {"type": "NUMERIC(15,2)"},
+        "debit_credit": {"type": "VARCHAR(2)", "check": "DR|CR"},
+        "channel": {"type": "VARCHAR(20)", "check": "BRANCH|ATM|NETBANKING|UPI|NEFT|RTGS|IMPS|MOBILE|CHEQUE|POS"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "counterparty_account_id": {"type": "INTEGER", "fk": "accounts.account_id"},
+        "status": {"type": "VARCHAR(20)", "check": "COMPLETED|PENDING|FAILED|REVERSED|PROCESSING"},
+        "reference_number": {"type": "VARCHAR(50)"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "loan_types": {
+      "description": "Loan type definitions (Home, Personal, Vehicle, Education, Business, Agriculture)",
+      "columns": {
+        "loan_type_id": {"type": "SERIAL", "pk": true},
+        "type_name": {"type": "VARCHAR(50)", "unique": true},
+        "type_code": {"type": "VARCHAR(10)", "unique": true},
+        "max_tenure_months": {"type": "INTEGER"},
+        "min_rate": {"type": "NUMERIC(5,2)"},
+        "max_rate": {"type": "NUMERIC(5,2)"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "loans": {
+      "description": "Customer loans with sanction, disbursement, outstanding amounts, and NPA tracking",
+      "columns": {
+        "loan_id": {"type": "SERIAL", "pk": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "loan_type_id": {"type": "INTEGER", "fk": "loan_types.loan_type_id"},
+        "loan_number": {"type": "VARCHAR(20)", "unique": true},
+        "sanction_date": {"type": "DATE"},
+        "sanction_amount": {"type": "NUMERIC(15,2)"},
+        "disbursed_amount": {"type": "NUMERIC(15,2)"},
+        "outstanding_amount": {"type": "NUMERIC(15,2)"},
+        "interest_rate": {"type": "NUMERIC(5,2)"},
+        "tenure_months": {"type": "INTEGER"},
+        "maturity_date": {"type": "DATE"},
+        "status": {"type": "VARCHAR(20)", "check": "ACTIVE|CLOSED|NPA|WRITTEN_OFF|RESTRUCTURED|SANCTIONED"},
+        "risk_category": {"type": "VARCHAR(10)", "check": "STANDARD|SMA1|SMA2|SUBSTANDARD|DOUBTFUL|LOSS"},
+        "npa_date": {"type": "DATE"},
+        "disbursement_date": {"type": "DATE"}
+      }
+    },
+    "loan_payments": {
+      "description": "Loan EMI payment records with overdue tracking",
+      "columns": {
+        "payment_id": {"type": "SERIAL", "pk": true},
+        "loan_id": {"type": "INTEGER", "fk": "loans.loan_id"},
+        "payment_date": {"type": "DATE"},
+        "due_date": {"type": "DATE"},
+        "due_amount": {"type": "NUMERIC(12,2)"},
+        "paid_amount": {"type": "NUMERIC(12,2)"},
+        "principal_amount": {"type": "NUMERIC(12,2)"},
+        "interest_amount": {"type": "NUMERIC(12,2)"},
+        "penalty_amount": {"type": "NUMERIC(12,2)"},
+        "days_overdue": {"type": "INTEGER"},
+        "payment_status": {"type": "VARCHAR(20)", "check": "PAID|PARTIAL|OVERDUE|PENDING|WAIVED"}
+      }
+    },
+    "loan_status_history": {
+      "description": "Audit trail of loan status changes (ACTIVE→NPA, etc.)",
+      "columns": {
+        "history_id": {"type": "SERIAL", "pk": true},
+        "loan_id": {"type": "INTEGER", "fk": "loans.loan_id"},
+        "old_status": {"type": "VARCHAR(20)"},
+        "new_status": {"type": "VARCHAR(20)"},
+        "change_date": {"type": "DATE"},
+        "reason": {"type": "TEXT"},
+        "changed_by": {"type": "VARCHAR(50)"}
+      }
+    },
+    "product_categories": {
+      "description": "Product category lookup (Deposit, Lending, Card, Insurance, Investment)",
+      "columns": {
+        "category_id": {"type": "SERIAL", "pk": true},
+        "category_name": {"type": "VARCHAR(50)", "unique": true},
+        "category_code": {"type": "VARCHAR(10)", "unique": true},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "products": {
+      "description": "Bank products (Savings, FD, Credit Card, Loans, Insurance, MF, etc.)",
+      "columns": {
+        "product_id": {"type": "SERIAL", "pk": true},
+        "product_name": {"type": "VARCHAR(100)"},
+        "product_code": {"type": "VARCHAR(20)", "unique": true},
+        "category_id": {"type": "INTEGER", "fk": "product_categories.category_id"},
+        "is_active": {"type": "BOOLEAN"},
+        "launch_date": {"type": "DATE"},
+        "description": {"type": "TEXT"}
+      }
+    },
+    "customer_products": {
+      "description": "Customer-product subscriptions with activation/deactivation dates",
+      "columns": {
+        "customer_product_id": {"type": "SERIAL", "pk": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "product_id": {"type": "INTEGER", "fk": "products.product_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "activation_date": {"type": "DATE"},
+        "deactivation_date": {"type": "DATE"},
+        "status": {"type": "VARCHAR(20)", "check": "ACTIVE|INACTIVE|CANCELLED|EXPIRED|SUSPENDED"}
+      }
+    },
+    "customer_complaints": {
+      "description": "Customer complaints with resolution tracking and satisfaction scoring",
+      "columns": {
+        "complaint_id": {"type": "SERIAL", "pk": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "complaint_date": {"type": "DATE"},
+        "category": {"type": "VARCHAR(50)"},
+        "priority": {"type": "VARCHAR(10)", "check": "LOW|MEDIUM|HIGH|CRITICAL"},
+        "description": {"type": "TEXT"},
+        "resolution_date": {"type": "DATE"},
+        "resolution_status": {"type": "VARCHAR(20)", "check": "OPEN|IN_PROGRESS|RESOLVED|ESCALATED|CLOSED|REOPENED"},
+        "assigned_employee_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "satisfaction_score": {"type": "INTEGER", "range": "1-5"}
+      }
+    },
+    "customer_interactions": {
+      "description": "Customer interaction records across all channels",
+      "columns": {
+        "interaction_id": {"type": "SERIAL", "pk": true},
+        "customer_id": {"type": "INTEGER", "fk": "customers.customer_id"},
+        "employee_id": {"type": "INTEGER", "fk": "employees.employee_id"},
+        "branch_id": {"type": "INTEGER", "fk": "branches.branch_id"},
+        "interaction_date": {"type": "TIMESTAMP"},
+        "channel": {"type": "VARCHAR(20)"},
+        "interaction_type": {"type": "VARCHAR(30)"},
+        "duration_minutes": {"type": "INTEGER"},
+        "outcome": {"type": "VARCHAR(30)"}
+      }
+    }
+  },
+  "views": [
+    "vw_active_employees",
+    "vw_branch_employee_metrics",
+    "vw_customer_balance_summary",
+    "vw_customer_transaction_summary",
+    "vw_branch_loan_metrics",
+    "vw_employee_quarterly_performance",
+    "vw_branch_quarterly_performance",
+    "vw_customer_product_summary"
+  ],
+  "join_paths": {
+    "branch_to_state": "branches → zones → regions → states",
+    "employee_to_state": "employees → branches → zones → regions → states",
+    "customer_to_state": "customers → branches → zones → regions → states",
+    "loan_to_state": "loans → branches → zones → regions → states",
+    "transaction_to_customer": "transactions → accounts → customers"
+  }
+}

@@ -1,0 +1,202 @@
+[
+  {
+    "id": 1,
+    "question": "Show the top 10 branches in Jharkhand by employee strength and average salary.",
+    "business_intent": "Identify the largest branches in Jharkhand and understand their salary cost structure.",
+    "complexity": "MEDIUM",
+    "relevant_tables": ["employees", "branches", "zones", "regions", "states"],
+    "expected_concepts": ["active employee count", "average salary", "state filter", "ranking"],
+    "verified_sql": "SELECT b.branch_name, b.branch_code, COUNT(e.employee_id) AS employee_strength, ROUND(AVG(e.salary), 2) AS avg_salary, ROUND(SUM(e.salary), 2) AS total_salary_cost FROM employees e JOIN branches b ON e.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id WHERE s.state_name = 'Jharkhand' AND e.status = 'ACTIVE' GROUP BY b.branch_id, b.branch_name, b.branch_code ORDER BY employee_strength DESC LIMIT 10;",
+    "expected_result": "10 rows showing Jharkhand branches ordered by active employee count"
+  },
+  {
+    "id": 2,
+    "question": "Show the top 10 branches in Jharkhand by employee strength for employees who joined after 2020, excluding contractual employees.",
+    "business_intent": "Focus on recent permanent/non-contractual hiring patterns in Jharkhand branches.",
+    "complexity": "MEDIUM",
+    "relevant_tables": ["employees", "branches", "zones", "regions", "states"],
+    "expected_concepts": ["join date filter", "employment type exclusion", "state filter", "ranking"],
+    "verified_sql": "SELECT b.branch_name, b.branch_code, COUNT(e.employee_id) AS employee_strength, ROUND(AVG(e.salary), 2) AS avg_salary FROM employees e JOIN branches b ON e.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id WHERE s.state_name = 'Jharkhand' AND e.status = 'ACTIVE' AND e.join_date >= '2020-01-01' AND e.employment_type != 'CONTRACT' GROUP BY b.branch_id, b.branch_name, b.branch_code ORDER BY employee_strength DESC LIMIT 10;",
+    "expected_result": "10 rows showing Jharkhand branches with post-2020 non-contract employees"
+  },
+  {
+    "id": 3,
+    "question": "Find employees whose salary is above their department average but whose performance score is below their department average.",
+    "business_intent": "Identify underperformers who are paid above average — potential efficiency concern.",
+    "complexity": "HIGH",
+    "relevant_tables": ["employees", "departments", "employee_performance"],
+    "expected_concepts": ["department average (window function or subquery)", "salary comparison", "performance comparison", "correlated subquery or CTE"],
+    "verified_sql": "WITH dept_avgs AS (SELECT d.department_id, d.dept_name, ROUND(AVG(e.salary), 2) AS avg_salary, ROUND(AVG(ep.performance_score), 2) AS avg_performance FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN employee_performance ep ON e.employee_id = ep.employee_id WHERE e.status = 'ACTIVE' AND ep.financial_year = 2024 AND ep.quarter = 'Q4' GROUP BY d.department_id, d.dept_name) SELECT e.employee_number, e.first_name || ' ' || e.last_name AS full_name, e.designation, d.dept_name, e.salary, da.avg_salary AS dept_avg_salary, ep.performance_score, da.avg_performance AS dept_avg_performance FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN dept_avgs da ON d.department_id = da.department_id JOIN employee_performance ep ON e.employee_id = ep.employee_id AND ep.financial_year = 2024 AND ep.quarter = 'Q4' WHERE e.status = 'ACTIVE' AND e.salary > da.avg_salary AND ep.performance_score < da.avg_performance ORDER BY (e.salary - da.avg_salary) DESC LIMIT 20;",
+    "expected_result": "Employees paid above department average with below-average performance"
+  },
+  {
+    "id": 4,
+    "question": "Identify branches where loan portfolio growth exceeded 15% year over year while employee productivity declined for three consecutive quarters.",
+    "business_intent": "Find branches where business is growing but workforce productivity is falling — operational risk indicator.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["loans", "branches", "employees", "employee_performance", "zones", "regions", "states"],
+    "expected_concepts": ["year-over-year loan growth", "consecutive quarter decline detection", "window functions (LAG)", "CTE", "HAVING"],
+    "verified_sql": "WITH branch_loan_growth AS (SELECT l.branch_id, CASE WHEN EXTRACT(MONTH FROM l.sanction_date) >= 4 THEN EXTRACT(YEAR FROM l.sanction_date) ELSE EXTRACT(YEAR FROM l.sanction_date) - 1 END AS fy, SUM(l.outstanding_amount) AS portfolio FROM loans l WHERE l.status = 'ACTIVE' GROUP BY l.branch_id, fy), loan_yoy AS (SELECT branch_id, fy, portfolio, LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy) AS prev_portfolio, CASE WHEN LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy) > 0 THEN ROUND((portfolio - LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy)) * 100.0 / LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy), 2) END AS growth_pct FROM branch_loan_growth), branch_prod AS (SELECT e.branch_id, ep.financial_year, ep.quarter, ROUND(AVG(ep.productivity_score), 2) AS avg_productivity, LAG(ROUND(AVG(ep.productivity_score), 2)) OVER (PARTITION BY e.branch_id ORDER BY ep.financial_year, ep.quarter) AS prev_q1_prod, LAG(ROUND(AVG(ep.productivity_score), 2), 2) OVER (PARTITION BY e.branch_id ORDER BY ep.financial_year, ep.quarter) AS prev_q2_prod FROM employee_performance ep JOIN employees e ON ep.employee_id = e.employee_id WHERE e.status = 'ACTIVE' GROUP BY e.branch_id, ep.financial_year, ep.quarter), declining_branches AS (SELECT branch_id FROM branch_prod WHERE avg_productivity < prev_q1_prod AND prev_q1_prod < prev_q2_prod GROUP BY branch_id) SELECT b.branch_name, b.branch_code, s.state_name, ly.growth_pct AS loan_growth_pct, ly.portfolio FROM loan_yoy ly JOIN declining_branches db ON ly.branch_id = db.branch_id JOIN branches b ON ly.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id WHERE ly.growth_pct > 15 AND ly.fy = 2024 ORDER BY ly.growth_pct DESC;",
+    "expected_result": "Branches with >15% loan growth AND declining employee productivity"
+  },
+  {
+    "id": 5,
+    "question": "Find customers whose average account balance increased by more than 20% while their transaction frequency declined.",
+    "business_intent": "Identify customers accumulating wealth but transacting less — possible dormancy risk or savings behavior.",
+    "complexity": "HIGH",
+    "relevant_tables": ["customers", "account_balances", "transactions", "accounts"],
+    "expected_concepts": ["balance trend analysis", "transaction frequency comparison", "period-over-period change"],
+    "verified_sql": "WITH cust_balance AS (SELECT a.customer_id, EXTRACT(YEAR FROM ab.balance_date) AS yr, ROUND(AVG(ab.closing_balance), 2) AS avg_balance FROM account_balances ab JOIN accounts a ON ab.account_id = a.account_id GROUP BY a.customer_id, yr), cust_txn AS (SELECT a.customer_id, EXTRACT(YEAR FROM t.transaction_date) AS yr, COUNT(t.transaction_id) AS txn_count FROM transactions t JOIN accounts a ON t.account_id = a.account_id WHERE t.status = 'COMPLETED' GROUP BY a.customer_id, yr), combined AS (SELECT cb.customer_id, cb.yr, cb.avg_balance, LAG(cb.avg_balance) OVER (PARTITION BY cb.customer_id ORDER BY cb.yr) AS prev_balance, ct.txn_count, LAG(ct.txn_count) OVER (PARTITION BY cb.customer_id ORDER BY cb.yr) AS prev_txn_count FROM cust_balance cb LEFT JOIN cust_txn ct ON cb.customer_id = ct.customer_id AND cb.yr = ct.yr) SELECT c.customer_number, c.first_name || ' ' || c.last_name AS customer_name, co.yr, co.avg_balance, co.prev_balance, ROUND((co.avg_balance - co.prev_balance) * 100.0 / NULLIF(co.prev_balance, 0), 2) AS balance_growth_pct, co.txn_count, co.prev_txn_count FROM combined co JOIN customers c ON co.customer_id = c.customer_id WHERE co.prev_balance > 0 AND (co.avg_balance - co.prev_balance) * 100.0 / co.prev_balance > 20 AND co.txn_count < co.prev_txn_count ORDER BY balance_growth_pct DESC LIMIT 20;",
+    "expected_result": "Customers with growing balances but declining transaction frequency"
+  },
+  {
+    "id": 6,
+    "question": "Find the top 5% customers by total relationship value within each region.",
+    "business_intent": "Identify the most valuable customers in each geographic region for relationship management.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["customers", "accounts", "loans", "branches", "zones", "regions"],
+    "expected_concepts": ["total relationship value (balance + loans)", "percentile ranking", "PERCENT_RANK window function", "regional grouping"],
+    "verified_sql": "WITH cust_value AS (SELECT c.customer_id, c.customer_number, c.first_name || ' ' || c.last_name AS customer_name, r.region_name, COALESCE(SUM(a.current_balance) FILTER (WHERE a.status = 'ACTIVE'), 0) + COALESCE(SUM(l.outstanding_amount) FILTER (WHERE l.status = 'ACTIVE'), 0) AS total_relationship_value FROM customers c JOIN branches b ON c.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id LEFT JOIN accounts a ON a.customer_id = c.customer_id LEFT JOIN loans l ON l.customer_id = c.customer_id WHERE c.status = 'ACTIVE' GROUP BY c.customer_id, c.customer_number, c.first_name, c.last_name, r.region_name), ranked AS (SELECT *, PERCENT_RANK() OVER (PARTITION BY region_name ORDER BY total_relationship_value) AS pct_rank FROM cust_value WHERE total_relationship_value > 0) SELECT customer_number, customer_name, region_name, total_relationship_value, ROUND(pct_rank * 100, 2) AS percentile FROM ranked WHERE pct_rank >= 0.95 ORDER BY region_name, total_relationship_value DESC;",
+    "expected_result": "Top 5% customers by total relationship value per region"
+  },
+  {
+    "id": 7,
+    "question": "Identify departments where employee attrition increased for three consecutive quarters.",
+    "business_intent": "Detect departments with worsening retention problems that may need HR intervention.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employees", "departments"],
+    "expected_concepts": ["attrition per quarter", "consecutive quarter detection", "LAG window function", "fiscal year/quarter calculation"],
+    "verified_sql": "WITH quarterly_attrition AS (SELECT e.department_id, CASE WHEN EXTRACT(MONTH FROM e.exit_date) >= 4 THEN EXTRACT(YEAR FROM e.exit_date) ELSE EXTRACT(YEAR FROM e.exit_date) - 1 END AS fy, CASE WHEN EXTRACT(MONTH FROM e.exit_date) IN (4,5,6) THEN 'Q1' WHEN EXTRACT(MONTH FROM e.exit_date) IN (7,8,9) THEN 'Q2' WHEN EXTRACT(MONTH FROM e.exit_date) IN (10,11,12) THEN 'Q3' ELSE 'Q4' END AS quarter, COUNT(*) AS attrition_count FROM employees e WHERE e.status IN ('RESIGNED', 'TERMINATED') AND e.exit_date IS NOT NULL GROUP BY e.department_id, fy, quarter), ranked AS (SELECT *, LAG(attrition_count, 1) OVER (PARTITION BY department_id ORDER BY fy, quarter) AS prev_q1, LAG(attrition_count, 2) OVER (PARTITION BY department_id ORDER BY fy, quarter) AS prev_q2 FROM quarterly_attrition) SELECT d.dept_name, r.fy, r.quarter, r.attrition_count, r.prev_q1 AS previous_quarter, r.prev_q2 AS two_quarters_ago FROM ranked r JOIN departments d ON r.department_id = d.department_id WHERE r.attrition_count > r.prev_q1 AND r.prev_q1 > r.prev_q2 AND r.prev_q2 IS NOT NULL ORDER BY r.attrition_count DESC;",
+    "expected_result": "Departments with increasing attrition for 3 consecutive quarters"
+  },
+  {
+    "id": 8,
+    "question": "Compare each branch's loan portfolio growth with the average loan portfolio growth of its region.",
+    "business_intent": "Benchmark individual branch loan growth against regional average to identify outliers.",
+    "complexity": "HIGH",
+    "relevant_tables": ["loans", "branches", "zones", "regions"],
+    "expected_concepts": ["loan portfolio per FY", "year-over-year growth", "regional average", "window function for regional comparison"],
+    "verified_sql": "WITH branch_portfolio AS (SELECT l.branch_id, CASE WHEN EXTRACT(MONTH FROM l.sanction_date) >= 4 THEN EXTRACT(YEAR FROM l.sanction_date) ELSE EXTRACT(YEAR FROM l.sanction_date) - 1 END AS fy, SUM(l.outstanding_amount) AS portfolio FROM loans l WHERE l.status IN ('ACTIVE','NPA') GROUP BY l.branch_id, fy), branch_growth AS (SELECT branch_id, fy, portfolio, LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy) AS prev_portfolio FROM branch_portfolio), growth_pct AS (SELECT bg.*, CASE WHEN prev_portfolio > 0 THEN ROUND((portfolio - prev_portfolio) * 100.0 / prev_portfolio, 2) END AS growth_pct FROM branch_growth bg WHERE prev_portfolio IS NOT NULL) SELECT b.branch_name, b.branch_code, r.region_name, gp.fy, gp.growth_pct AS branch_growth, ROUND(AVG(gp.growth_pct) OVER (PARTITION BY r.region_id, gp.fy), 2) AS region_avg_growth, gp.growth_pct - ROUND(AVG(gp.growth_pct) OVER (PARTITION BY r.region_id, gp.fy), 2) AS vs_region FROM growth_pct gp JOIN branches b ON gp.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id WHERE gp.fy = 2024 ORDER BY vs_region DESC LIMIT 20;",
+    "expected_result": "Branches compared against their regional average loan growth"
+  },
+  {
+    "id": 9,
+    "question": "Find employees whose performance improved for two consecutive quarters and whose salary is below the department median.",
+    "business_intent": "Identify high-potential employees who deserve salary review — improving performers paid below median.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employees", "departments", "employee_performance"],
+    "expected_concepts": ["consecutive improvement detection", "LAG window function", "median calculation", "department grouping"],
+    "verified_sql": "WITH perf_trend AS (SELECT ep.employee_id, ep.financial_year, ep.quarter, ep.performance_score, LAG(ep.performance_score) OVER (PARTITION BY ep.employee_id ORDER BY ep.financial_year, ep.quarter) AS prev_score, LAG(ep.performance_score, 2) OVER (PARTITION BY ep.employee_id ORDER BY ep.financial_year, ep.quarter) AS prev_prev_score FROM employee_performance ep), improving AS (SELECT employee_id FROM perf_trend WHERE performance_score > prev_score AND prev_score > prev_prev_score AND prev_prev_score IS NOT NULL GROUP BY employee_id), dept_median AS (SELECT department_id, PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY salary) AS median_salary FROM employees WHERE status = 'ACTIVE' GROUP BY department_id) SELECT e.employee_number, e.first_name || ' ' || e.last_name AS full_name, e.designation, d.dept_name, e.salary, dm.median_salary AS dept_median_salary FROM employees e JOIN improving i ON e.employee_id = i.employee_id JOIN departments d ON e.department_id = d.department_id JOIN dept_median dm ON e.department_id = dm.department_id WHERE e.status = 'ACTIVE' AND e.salary < dm.median_salary ORDER BY (dm.median_salary - e.salary) DESC LIMIT 20;",
+    "expected_result": "Employees with improving performance but below-median salary"
+  },
+  {
+    "id": 10,
+    "question": "Identify customers with at least three active products who have not performed a transaction in the last six months.",
+    "business_intent": "Find multi-product customers at risk of churn — they hold products but are not transacting.",
+    "complexity": "MEDIUM",
+    "relevant_tables": ["customers", "customer_products", "accounts", "transactions"],
+    "expected_concepts": ["product count filter", "transaction recency check", "LEFT JOIN with date filter"],
+    "verified_sql": "WITH active_products AS (SELECT customer_id, COUNT(*) AS product_count FROM customer_products WHERE status = 'ACTIVE' GROUP BY customer_id HAVING COUNT(*) >= 3), recent_txns AS (SELECT DISTINCT a.customer_id FROM transactions t JOIN accounts a ON t.account_id = a.account_id WHERE t.transaction_date >= CURRENT_DATE - INTERVAL '6 months' AND t.status = 'COMPLETED') SELECT c.customer_number, c.first_name || ' ' || c.last_name AS customer_name, ap.product_count, MAX(t.transaction_date) AS last_transaction_date FROM customers c JOIN active_products ap ON c.customer_id = ap.customer_id LEFT JOIN accounts a ON a.customer_id = c.customer_id LEFT JOIN transactions t ON t.account_id = a.account_id WHERE c.customer_id NOT IN (SELECT customer_id FROM recent_txns) AND c.status = 'ACTIVE' GROUP BY c.customer_id, c.customer_number, c.first_name, c.last_name, ap.product_count ORDER BY ap.product_count DESC, last_transaction_date ASC LIMIT 20;",
+    "expected_result": "Multi-product customers with no recent transactions"
+  },
+  {
+    "id": 11,
+    "question": "Find branches where employee salary cost increased faster than loan portfolio growth.",
+    "business_intent": "Detect branches where cost is outpacing revenue growth — operational efficiency concern.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employees", "loans", "branches"],
+    "expected_concepts": ["salary cost growth", "loan portfolio growth", "year-over-year comparison", "CTE"],
+    "verified_sql": "WITH salary_by_fy AS (SELECT e.branch_id, CASE WHEN EXTRACT(MONTH FROM e.join_date) >= 4 THEN EXTRACT(YEAR FROM e.join_date) ELSE EXTRACT(YEAR FROM e.join_date) - 1 END AS fy, SUM(e.salary) AS total_salary FROM employees e WHERE e.status = 'ACTIVE' GROUP BY e.branch_id, fy), loan_by_fy AS (SELECT l.branch_id, CASE WHEN EXTRACT(MONTH FROM l.sanction_date) >= 4 THEN EXTRACT(YEAR FROM l.sanction_date) ELSE EXTRACT(YEAR FROM l.sanction_date) - 1 END AS fy, SUM(l.outstanding_amount) AS portfolio FROM loans l WHERE l.status = 'ACTIVE' GROUP BY l.branch_id, fy), salary_growth AS (SELECT branch_id, fy, total_salary, LAG(total_salary) OVER (PARTITION BY branch_id ORDER BY fy) AS prev_salary FROM salary_by_fy), loan_growth AS (SELECT branch_id, fy, portfolio, LAG(portfolio) OVER (PARTITION BY branch_id ORDER BY fy) AS prev_portfolio FROM loan_by_fy) SELECT b.branch_name, sg.fy, CASE WHEN sg.prev_salary > 0 THEN ROUND((sg.total_salary - sg.prev_salary) * 100.0 / sg.prev_salary, 2) END AS salary_growth_pct, CASE WHEN lg.prev_portfolio > 0 THEN ROUND((lg.portfolio - lg.prev_portfolio) * 100.0 / lg.prev_portfolio, 2) END AS loan_growth_pct FROM salary_growth sg JOIN loan_growth lg ON sg.branch_id = lg.branch_id AND sg.fy = lg.fy JOIN branches b ON sg.branch_id = b.branch_id WHERE sg.prev_salary > 0 AND lg.prev_portfolio > 0 AND (sg.total_salary - sg.prev_salary) * 100.0 / sg.prev_salary > (lg.portfolio - lg.prev_portfolio) * 100.0 / lg.prev_portfolio ORDER BY salary_growth_pct DESC LIMIT 20;",
+    "expected_result": "Branches where salary cost growth exceeds loan portfolio growth"
+  },
+  {
+    "id": 12,
+    "question": "Identify the departments contributing the most to employee attrition in each region.",
+    "business_intent": "Find which departments have the highest attrition broken down by region for targeted retention efforts.",
+    "complexity": "HIGH",
+    "relevant_tables": ["employees", "departments", "branches", "zones", "regions"],
+    "expected_concepts": ["attrition count", "department-region grouping", "ranking per region"],
+    "verified_sql": "WITH dept_region_attrition AS (SELECT d.dept_name, r.region_name, COUNT(e.employee_id) AS attrition_count FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN branches b ON e.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id WHERE e.status IN ('RESIGNED', 'TERMINATED') GROUP BY d.dept_name, r.region_name), ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY region_name ORDER BY attrition_count DESC) AS rn FROM dept_region_attrition) SELECT region_name, dept_name, attrition_count FROM ranked WHERE rn <= 3 ORDER BY region_name, rn;",
+    "expected_result": "Top 3 departments by attrition count in each region"
+  },
+  {
+    "id": 13,
+    "question": "Find the top three employees in every department based on average performance score over the last four quarters.",
+    "business_intent": "Identify top performers in each department for recognition or promotion consideration.",
+    "complexity": "HIGH",
+    "relevant_tables": ["employees", "departments", "employee_performance"],
+    "expected_concepts": ["recent 4 quarters", "average score", "DENSE_RANK per department"],
+    "verified_sql": "WITH recent_perf AS (SELECT ep.employee_id, ROUND(AVG(ep.performance_score), 2) AS avg_perf_score FROM employee_performance ep WHERE (ep.financial_year = 2025) OR (ep.financial_year = 2024 AND ep.quarter IN ('Q3','Q4')) GROUP BY ep.employee_id), ranked AS (SELECT e.employee_number, e.first_name || ' ' || e.last_name AS full_name, e.designation, d.dept_name, rp.avg_perf_score, DENSE_RANK() OVER (PARTITION BY d.department_id ORDER BY rp.avg_perf_score DESC) AS dept_rank FROM employees e JOIN departments d ON e.department_id = d.department_id JOIN recent_perf rp ON e.employee_id = rp.employee_id WHERE e.status = 'ACTIVE') SELECT dept_name, full_name, designation, avg_perf_score, dept_rank FROM ranked WHERE dept_rank <= 3 ORDER BY dept_name, dept_rank;",
+    "expected_result": "Top 3 employees per department by average performance score"
+  },
+  {
+    "id": 14,
+    "question": "Find customers whose balance is above the regional average but whose transaction activity is below the regional average.",
+    "business_intent": "Identify wealthy but inactive customers — opportunity for engagement or risk of dormancy.",
+    "complexity": "HIGH",
+    "relevant_tables": ["customers", "accounts", "transactions", "branches", "zones", "regions"],
+    "expected_concepts": ["regional averages", "balance comparison", "transaction frequency comparison", "CTE or window function"],
+    "verified_sql": "WITH cust_metrics AS (SELECT c.customer_id, c.customer_number, c.first_name || ' ' || c.last_name AS customer_name, r.region_name, COALESCE(SUM(a.current_balance), 0) AS total_balance, COUNT(DISTINCT t.transaction_id) AS txn_count FROM customers c JOIN branches b ON c.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id LEFT JOIN accounts a ON a.customer_id = c.customer_id AND a.status = 'ACTIVE' LEFT JOIN transactions t ON t.account_id = a.account_id AND t.transaction_date >= CURRENT_DATE - INTERVAL '1 year' WHERE c.status = 'ACTIVE' GROUP BY c.customer_id, c.customer_number, c.first_name, c.last_name, r.region_name), region_avgs AS (SELECT region_name, AVG(total_balance) AS avg_balance, AVG(txn_count) AS avg_txn_count FROM cust_metrics GROUP BY region_name) SELECT cm.customer_number, cm.customer_name, cm.region_name, cm.total_balance, ROUND(ra.avg_balance, 2) AS region_avg_balance, cm.txn_count, ROUND(ra.avg_txn_count, 1) AS region_avg_txn_count FROM cust_metrics cm JOIN region_avgs ra ON cm.region_name = ra.region_name WHERE cm.total_balance > ra.avg_balance AND cm.txn_count < ra.avg_txn_count ORDER BY cm.total_balance DESC LIMIT 20;",
+    "expected_result": "Customers with above-average balance but below-average transaction activity"
+  },
+  {
+    "id": 15,
+    "question": "Compare quarterly employee productivity against branch loan growth and identify branches with opposite trends.",
+    "business_intent": "Find branches where productivity is declining while loans are growing or vice versa — misalignment indicator.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employee_performance", "employees", "loans", "branches"],
+    "expected_concepts": ["quarterly trends", "opposite direction detection", "window functions", "multi-metric comparison"],
+    "verified_sql": "WITH branch_productivity AS (SELECT e.branch_id, ep.financial_year, ep.quarter, ROUND(AVG(ep.productivity_score), 2) AS avg_productivity FROM employee_performance ep JOIN employees e ON ep.employee_id = e.employee_id WHERE e.status = 'ACTIVE' GROUP BY e.branch_id, ep.financial_year, ep.quarter), branch_loans AS (SELECT l.branch_id, CASE WHEN EXTRACT(MONTH FROM l.sanction_date) >= 4 THEN EXTRACT(YEAR FROM l.sanction_date) ELSE EXTRACT(YEAR FROM l.sanction_date) - 1 END AS fy, SUM(l.outstanding_amount) AS loan_portfolio FROM loans l WHERE l.status IN ('ACTIVE','NPA') GROUP BY l.branch_id, fy), prod_trend AS (SELECT *, avg_productivity - LAG(avg_productivity) OVER (PARTITION BY branch_id ORDER BY financial_year, quarter) AS prod_change FROM branch_productivity), loan_trend AS (SELECT *, loan_portfolio - LAG(loan_portfolio) OVER (PARTITION BY branch_id ORDER BY fy) AS loan_change FROM branch_loans) SELECT b.branch_name, pt.financial_year, pt.quarter, pt.avg_productivity, pt.prod_change, lt.loan_portfolio, lt.loan_change FROM prod_trend pt JOIN branches b ON pt.branch_id = b.branch_id LEFT JOIN loan_trend lt ON pt.branch_id = lt.branch_id AND pt.financial_year = lt.fy WHERE pt.prod_change IS NOT NULL AND lt.loan_change IS NOT NULL AND ((pt.prod_change < 0 AND lt.loan_change > 0) OR (pt.prod_change > 0 AND lt.loan_change < 0)) ORDER BY ABS(pt.prod_change) DESC LIMIT 20;",
+    "expected_result": "Branches where productivity and loan growth move in opposite directions"
+  },
+  {
+    "id": 16,
+    "question": "Find the top 10 branches by loan disbursement while excluding branches with fewer than 50 active employees.",
+    "business_intent": "Identify high-lending branches that also have adequate staffing levels.",
+    "complexity": "MEDIUM",
+    "relevant_tables": ["loans", "employees", "branches"],
+    "expected_concepts": ["loan disbursement sum", "employee count filter", "HAVING clause"],
+    "verified_sql": "SELECT b.branch_name, b.branch_code, SUM(l.disbursed_amount) AS total_disbursed, COUNT(DISTINCT e.employee_id) AS active_employees FROM branches b JOIN loans l ON l.branch_id = b.branch_id JOIN employees e ON e.branch_id = b.branch_id AND e.status = 'ACTIVE' WHERE l.disbursement_date IS NOT NULL GROUP BY b.branch_id, b.branch_name, b.branch_code HAVING COUNT(DISTINCT e.employee_id) >= 50 ORDER BY total_disbursed DESC LIMIT 10;",
+    "expected_result": "Top 10 branches by loan disbursement with 50+ active employees"
+  },
+  {
+    "id": 17,
+    "question": "Identify employees who changed departments during the last two financial years and compare their performance before and after the transfer.",
+    "business_intent": "Assess the impact of departmental transfers on employee performance.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employees", "employee_department_history", "employee_performance", "departments"],
+    "expected_concepts": ["department change detection", "before/after comparison", "fiscal year filtering", "self-join or CTE"],
+    "verified_sql": "WITH transfers AS (SELECT edh.employee_id, edh.department_id AS old_dept_id, edh.end_date AS transfer_date, LEAD(edh.department_id) OVER (PARTITION BY edh.employee_id ORDER BY edh.start_date) AS new_dept_id FROM employee_department_history edh WHERE edh.end_date IS NOT NULL AND edh.end_date >= '2023-04-01'), transfer_perf AS (SELECT tr.employee_id, tr.old_dept_id, tr.new_dept_id, tr.transfer_date, ROUND(AVG(ep_before.performance_score), 2) AS avg_perf_before, ROUND(AVG(ep_after.performance_score), 2) AS avg_perf_after FROM transfers tr LEFT JOIN employee_performance ep_before ON tr.employee_id = ep_before.employee_id AND ep_before.performance_date < tr.transfer_date LEFT JOIN employee_performance ep_after ON tr.employee_id = ep_after.employee_id AND ep_after.performance_date >= tr.transfer_date WHERE tr.new_dept_id IS NOT NULL GROUP BY tr.employee_id, tr.old_dept_id, tr.new_dept_id, tr.transfer_date HAVING COUNT(ep_before.performance_id) > 0 AND COUNT(ep_after.performance_id) > 0) SELECT e.employee_number, e.first_name || ' ' || e.last_name AS full_name, d_old.dept_name AS from_department, d_new.dept_name AS to_department, tp.transfer_date, tp.avg_perf_before, tp.avg_perf_after, ROUND(tp.avg_perf_after - tp.avg_perf_before, 2) AS performance_change FROM transfer_perf tp JOIN employees e ON tp.employee_id = e.employee_id JOIN departments d_old ON tp.old_dept_id = d_old.department_id JOIN departments d_new ON tp.new_dept_id = d_new.department_id ORDER BY performance_change DESC LIMIT 20;",
+    "expected_result": "Employees with before/after performance comparison around department changes"
+  },
+  {
+    "id": 18,
+    "question": "Find customers who had a complaint unresolved for more than 30 days and whose account balance declined by more than 10% during the same period.",
+    "business_intent": "Identify customers at high risk of attrition due to both unresolved complaints and declining balances.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["customers", "customer_complaints", "accounts", "account_balances"],
+    "expected_concepts": ["complaint duration calculation", "balance decline detection", "temporal correlation", "CTE"],
+    "verified_sql": "WITH long_complaints AS (SELECT cc.customer_id, cc.complaint_id, cc.complaint_date, COALESCE(cc.resolution_date, CURRENT_DATE) AS resolution_date, COALESCE(cc.resolution_date, CURRENT_DATE) - cc.complaint_date AS days_open FROM customer_complaints cc WHERE (cc.resolution_status NOT IN ('RESOLVED', 'CLOSED') OR (cc.resolution_date - cc.complaint_date) > 30)), balance_decline AS (SELECT a.customer_id, MIN(ab.closing_balance) AS min_balance, MAX(ab.closing_balance) AS max_balance, CASE WHEN MAX(ab.closing_balance) > 0 THEN ROUND((MAX(ab.closing_balance) - MIN(ab.closing_balance)) * 100.0 / MAX(ab.closing_balance), 2) END AS decline_pct FROM account_balances ab JOIN accounts a ON ab.account_id = a.account_id WHERE ab.balance_date >= CURRENT_DATE - INTERVAL '1 year' GROUP BY a.customer_id) SELECT DISTINCT c.customer_number, c.first_name || ' ' || c.last_name AS customer_name, lc.days_open AS complaint_days_open, bd.decline_pct AS balance_decline_pct FROM long_complaints lc JOIN customers c ON lc.customer_id = c.customer_id JOIN balance_decline bd ON c.customer_id = bd.customer_id WHERE bd.decline_pct > 10 ORDER BY bd.decline_pct DESC LIMIT 20;",
+    "expected_result": "Customers with long-unresolved complaints AND declining balances"
+  },
+  {
+    "id": 19,
+    "question": "Identify branches whose transaction volume is above the regional average but whose average transaction value is below the regional average.",
+    "business_intent": "Find branches with high transaction count but low-value transactions — potential micro-transaction branches.",
+    "complexity": "HIGH",
+    "relevant_tables": ["transactions", "branches", "zones", "regions"],
+    "expected_concepts": ["transaction volume vs value", "regional averages", "comparative analysis"],
+    "verified_sql": "WITH branch_txn AS (SELECT t.branch_id, COUNT(t.transaction_id) AS txn_count, ROUND(AVG(t.amount), 2) AS avg_txn_value FROM transactions t WHERE t.status = 'COMPLETED' AND t.transaction_date >= CURRENT_DATE - INTERVAL '1 year' GROUP BY t.branch_id), regional_avg AS (SELECT r.region_id, r.region_name, AVG(bt.txn_count) AS avg_txn_count, AVG(bt.avg_txn_value) AS avg_txn_val FROM branch_txn bt JOIN branches b ON bt.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id GROUP BY r.region_id, r.region_name) SELECT b.branch_name, b.branch_code, ra.region_name, bt.txn_count, ROUND(ra.avg_txn_count, 0) AS region_avg_count, bt.avg_txn_value, ROUND(ra.avg_txn_val, 2) AS region_avg_value FROM branch_txn bt JOIN branches b ON bt.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN regional_avg ra ON r.region_id = ra.region_id WHERE bt.txn_count > ra.avg_txn_count AND bt.avg_txn_value < ra.avg_txn_val ORDER BY bt.txn_count DESC LIMIT 20;",
+    "expected_result": "Branches with above-average volume but below-average transaction value"
+  },
+  {
+    "id": 20,
+    "question": "Find the bottom 10 branches where employee productivity declined for three consecutive quarters despite salary expenses increasing.",
+    "business_intent": "Identify worst-performing branches where increased salary cost has not translated into improved productivity.",
+    "complexity": "VERY_HIGH",
+    "relevant_tables": ["employees", "employee_performance", "branches"],
+    "expected_concepts": ["consecutive decline detection", "salary cost trend", "divergent trends", "LAG window function", "CTE"],
+    "verified_sql": "WITH quarterly_prod AS (SELECT e.branch_id, ep.financial_year, ep.quarter, ROUND(AVG(ep.productivity_score), 2) AS avg_productivity, SUM(e.salary) AS total_salary FROM employee_performance ep JOIN employees e ON ep.employee_id = e.employee_id WHERE e.status = 'ACTIVE' GROUP BY e.branch_id, ep.financial_year, ep.quarter), prod_trend AS (SELECT *, LAG(avg_productivity) OVER (PARTITION BY branch_id ORDER BY financial_year, quarter) AS prev_prod_1, LAG(avg_productivity, 2) OVER (PARTITION BY branch_id ORDER BY financial_year, quarter) AS prev_prod_2, LAG(total_salary) OVER (PARTITION BY branch_id ORDER BY financial_year, quarter) AS prev_salary_1, LAG(total_salary, 2) OVER (PARTITION BY branch_id ORDER BY financial_year, quarter) AS prev_salary_2 FROM quarterly_prod), declining AS (SELECT branch_id, financial_year, quarter, avg_productivity, total_salary FROM prod_trend WHERE avg_productivity < prev_prod_1 AND prev_prod_1 < prev_prod_2 AND total_salary > prev_salary_1 AND prev_salary_1 > prev_salary_2) SELECT b.branch_name, b.branch_code, s.state_name, dc.financial_year, dc.quarter, dc.avg_productivity, dc.total_salary FROM declining dc JOIN branches b ON dc.branch_id = b.branch_id JOIN zones z ON b.zone_id = z.zone_id JOIN regions r ON z.region_id = r.region_id JOIN states s ON r.state_id = s.state_id ORDER BY dc.avg_productivity ASC LIMIT 10;",
+    "expected_result": "Bottom 10 branches with declining productivity despite rising salary costs"
+  }
+]
