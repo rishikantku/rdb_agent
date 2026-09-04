@@ -23,11 +23,15 @@ export const ROLES: Record<RoleId, PermissionProfile> = {
     domains: [
       'customer_data', 'account_data', 'loan_data', 'transaction_data',
       'employee_data', 'branch_data', 'financial_performance', 'sensitive_financial',
+      'regulatory_data', 'data_quality', 'regulatory_reports',
     ],
     capabilities: [
       'view_aggregate', 'view_detailed_records', 'view_customer_level',
       'view_account_level', 'view_transaction_level',
       'cross_branch_analysis', 'cross_region_analysis', 'enterprise_analysis',
+      'view_dq_scores', 'view_dq_exceptions', 'resolve_exceptions',
+      'generate_regulatory_report', 'approve_regulatory_report',
+      'configure_dq_rules', 'view_audit_trail', 'run_validation',
     ],
     restrictions: [],
   },
@@ -119,9 +123,11 @@ export const ROLES: Record<RoleId, PermissionProfile> = {
       level: 'enterprise',
       label: 'All regions — aggregate figures only',
     },
-    domains: ['loan_data', 'account_data', 'transaction_data', 'branch_data', 'financial_performance'],
+    domains: ['loan_data', 'account_data', 'transaction_data', 'branch_data', 'financial_performance',
+      'data_quality', 'regulatory_data'],
     capabilities: [
       'view_aggregate', 'cross_branch_analysis', 'cross_region_analysis', 'enterprise_analysis',
+      'view_dq_scores',
     ],
     restrictions: [
       'Customer-level records',
@@ -129,11 +135,95 @@ export const ROLES: Record<RoleId, PermissionProfile> = {
       'Transaction-level records',
       'Employee records',
       'Sensitive financial information',
+      'Exception resolution',
+      'Report approval',
+    ],
+  },
+
+  REGULATORY_OFFICER: {
+    id: 'REGULATORY_OFFICER',
+    title: 'Regulatory Reporting Officer',
+    remit: 'Regulatory report generation, validation, and exception management',
+    scope: {
+      level: 'enterprise',
+      label: 'All regions — regulatory data',
+    },
+    domains: [
+      'regulatory_data', 'data_quality', 'regulatory_reports',
+      'loan_data', 'account_data', 'branch_data', 'financial_performance',
+    ],
+    capabilities: [
+      'view_aggregate', 'view_detailed_records',
+      'cross_branch_analysis', 'cross_region_analysis', 'enterprise_analysis',
+      'view_dq_scores', 'view_dq_exceptions', 'resolve_exceptions',
+      'generate_regulatory_report', 'run_validation', 'view_audit_trail',
+    ],
+    restrictions: [
+      'Report approval (checker)',
+      'DQ rule configuration',
+      'Employee records',
+      'Sensitive financial information',
+    ],
+  },
+
+  COMPLIANCE: {
+    id: 'COMPLIANCE',
+    title: 'Compliance Officer',
+    remit: 'Regulatory compliance oversight — read-only',
+    scope: {
+      level: 'enterprise',
+      label: 'All regions — compliance view',
+    },
+    domains: [
+      'regulatory_data', 'data_quality', 'regulatory_reports',
+      'loan_data', 'account_data', 'branch_data',
+    ],
+    capabilities: [
+      'view_aggregate', 'cross_branch_analysis', 'cross_region_analysis', 'enterprise_analysis',
+      'view_dq_scores', 'view_dq_exceptions', 'view_audit_trail',
+    ],
+    restrictions: [
+      'Report generation',
+      'Exception resolution',
+      'Report approval',
+      'DQ rule configuration',
+      'Employee records',
+      'Transaction-level data',
+    ],
+  },
+
+  AUDITOR: {
+    id: 'AUDITOR',
+    title: 'Auditor',
+    remit: 'Audit trail inspection and historical review — read-only',
+    scope: {
+      level: 'enterprise',
+      label: 'All regions — audit view',
+    },
+    domains: [
+      'regulatory_data', 'data_quality', 'regulatory_reports',
+    ],
+    capabilities: [
+      'view_aggregate', 'enterprise_analysis',
+      'view_dq_scores', 'view_dq_exceptions', 'view_audit_trail',
+    ],
+    restrictions: [
+      'Report generation',
+      'Exception resolution',
+      'Report approval',
+      'DQ rule configuration',
+      'Customer-level data',
+      'Account-level data',
+      'Employee records',
+      'Financial data',
     ],
   },
 };
 
-export const ROLE_ORDER: RoleId[] = ['DGM', 'SENIOR_MANAGER', 'AGM', 'BRANCH_MANAGER', 'ANALYST'];
+export const ROLE_ORDER: RoleId[] = [
+  'DGM', 'SENIOR_MANAGER', 'AGM', 'BRANCH_MANAGER', 'ANALYST',
+  'REGULATORY_OFFICER', 'COMPLIANCE', 'AUDITOR',
+];
 
 /**
  * Names of areas in the demonstration data, with the everyday phrasings people

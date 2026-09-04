@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, MessageSquare, Clock, Bookmark,
   ShieldCheck, Database, Settings as SettingsIcon, Sun, Moon,
+  Shield, FileText, AlertTriangle, BarChart3, Brain,
 } from 'lucide-react';
 import './App.css';
 import { Logo } from './components/brand/Logo';
@@ -22,13 +23,26 @@ import Settings from './components/Settings';
 import AccessControlPanel from './components/AccessControlPanel';
 import GuardrailTestModal from './components/GuardrailTestModal';
 
-type Tab = 'dashboard' | 'ask' | 'history' | 'saved' | 'permissions' | 'explorer' | 'settings';
+// Regulatory DQ Views
+import DataQualityDashboard from './components/regulatory/DataQualityDashboard';
+import RegulatoryReportsView from './components/regulatory/RegulatoryReportsView';
+import ExceptionsView from './components/regulatory/ExceptionsView';
+import ScorecardView from './components/regulatory/ScorecardView';
+import RegulatoryIntelligenceView from './components/regulatory/RegulatoryIntelligenceView';
+
+type Tab = 'dashboard' | 'ask' | 'history' | 'saved' | 'permissions' | 'explorer' | 'settings'
+  | 'data-quality' | 'reg-reports' | 'exceptions' | 'scorecard' | 'reg-intelligence';
 
 const NAV_ITEMS: { id: Tab; label: string; icon: React.ElementType; group?: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'ask', label: 'Ask Data', icon: MessageSquare },
   { id: 'history', label: 'History', icon: Clock },
   { id: 'saved', label: 'Saved Queries', icon: Bookmark },
+  { id: 'data-quality', label: 'Data Quality', icon: Shield, group: 'Regulatory' },
+  { id: 'reg-reports', label: 'Reg. Reports', icon: FileText },
+  { id: 'exceptions', label: 'Exceptions', icon: AlertTriangle },
+  { id: 'scorecard', label: 'Scorecard', icon: BarChart3 },
+  { id: 'reg-intelligence', label: 'Reg. Intelligence', icon: Brain },
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck, group: 'Admin' },
   { id: 'explorer', label: 'Schema Explorer', icon: Database },
   { id: 'settings', label: 'Settings', icon: SettingsIcon },
@@ -395,6 +409,21 @@ const App = () => {
               onThemeChange={changeTheme}
             />
           )}
+
+          {/* ===== Regulatory Module Views ===== */}
+          {activeTab === 'data-quality' && (
+            <DataQualityDashboard
+              roleId={roleId}
+              onNavigateToExceptions={() => setActiveTab('exceptions')}
+              onNavigateToReports={() => setActiveTab('reg-reports')}
+              onNavigateToScorecard={() => setActiveTab('scorecard')}
+              onAskQuestion={(q) => { setInitialQuestion(q); setActiveTab('reg-intelligence'); }}
+            />
+          )}
+          {activeTab === 'reg-reports' && <RegulatoryReportsView roleId={roleId} />}
+          {activeTab === 'exceptions' && <ExceptionsView roleId={roleId} />}
+          {activeTab === 'scorecard' && <ScorecardView roleId={roleId} />}
+          {activeTab === 'reg-intelligence' && <RegulatoryIntelligenceView roleId={roleId} />}
         </main>
       </div>
 

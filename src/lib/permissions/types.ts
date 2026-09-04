@@ -11,7 +11,8 @@
 //   UI  ->  PermissionService  ->  [ mock today | backend authorization later ]
 // ============================================================================
 
-export type RoleId = 'DGM' | 'AGM' | 'SENIOR_MANAGER' | 'BRANCH_MANAGER' | 'ANALYST';
+export type RoleId = 'DGM' | 'AGM' | 'SENIOR_MANAGER' | 'BRANCH_MANAGER' | 'ANALYST'
+  | 'REGULATORY_OFFICER' | 'COMPLIANCE' | 'AUDITOR';
 
 /** Business areas a question can touch. */
 export type DataDomain =
@@ -22,7 +23,10 @@ export type DataDomain =
   | 'employee_data'
   | 'branch_data'
   | 'financial_performance'
-  | 'sensitive_financial';
+  | 'sensitive_financial'
+  | 'regulatory_data'
+  | 'data_quality'
+  | 'regulatory_reports';
 
 /** What a role may do with the data it can see. */
 export type Capability =
@@ -33,7 +37,15 @@ export type Capability =
   | 'view_transaction_level'
   | 'cross_branch_analysis'
   | 'cross_region_analysis'
-  | 'enterprise_analysis';
+  | 'enterprise_analysis'
+  | 'view_dq_scores'
+  | 'view_dq_exceptions'
+  | 'resolve_exceptions'
+  | 'generate_regulatory_report'
+  | 'approve_regulatory_report'
+  | 'configure_dq_rules'
+  | 'view_audit_trail'
+  | 'run_validation';
 
 /** Breadth of data a role or a question covers. Ordered by rank(). */
 export type ScopeLevel = 'enterprise' | 'state' | 'region' | 'zone' | 'branch';
@@ -115,6 +127,14 @@ export const CAPABILITY_LABELS: Record<Capability, string> = {
   cross_branch_analysis: 'Cross-branch analysis',
   cross_region_analysis: 'Cross-region analysis',
   enterprise_analysis: 'Enterprise-wide analysis',
+  view_dq_scores: 'View data quality scores',
+  view_dq_exceptions: 'View DQ exceptions',
+  resolve_exceptions: 'Resolve exceptions',
+  generate_regulatory_report: 'Generate regulatory reports',
+  approve_regulatory_report: 'Approve regulatory reports',
+  configure_dq_rules: 'Configure DQ rules',
+  view_audit_trail: 'View audit trail',
+  run_validation: 'Run validation',
 };
 
 export const DOMAIN_LABELS: Record<DataDomain, string> = {
@@ -126,4 +146,7 @@ export const DOMAIN_LABELS: Record<DataDomain, string> = {
   branch_data: 'Branch data',
   financial_performance: 'Financial performance',
   sensitive_financial: 'Sensitive financial information',
+  regulatory_data: 'Regulatory data',
+  data_quality: 'Data quality',
+  regulatory_reports: 'Regulatory reports',
 };
